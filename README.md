@@ -22,6 +22,7 @@ symlinks. Real files and directories are never deleted automatically.
 
 | Skill | Slash command | Description |
 |-------|---------------|-------------|
+| `cleanup-branch-noise` | `/cleanup-branch-noise` | Discard branch noise, park unclear work on a CLEANUP branch, land on fresh main/master |
 | `compr-code-review` | `/compr-code-review` | Structured PR/branch review across correctness, security, maintainability, tests, and style |
 
 Source files live under `.agents/skills/<name>/SKILL.md`.
