@@ -24,6 +24,7 @@ symlinks. Real files and directories are never deleted automatically.
 |-------|---------------|-------------|
 | `cleanup-branch-noise` | `/cleanup-branch-noise` | Discard branch noise, park unclear work on a CLEANUP branch, land on fresh main/master |
 | `compr-code-review` | `/compr-code-review` | Structured PR/branch review across correctness, security, maintainability, tests, and style |
+| `smart-push-to-prod` | `/smart-push-to-prod` | Commit, push, open PR, squash-merge to main/master, refresh local default branch |
 
 Source files live under `.agents/skills/<name>/SKILL.md`.
 
