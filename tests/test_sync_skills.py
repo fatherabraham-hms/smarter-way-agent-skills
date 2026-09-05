@@ -6,15 +6,11 @@ from pathlib import Path
 SCRIPT = Path(__file__).parents[1] / "sync_skills.py"
 
 
-def run_sync(source, installed, *editors, prune=False):
-    command = [
-        sys.executable,
-        str(SCRIPT),
-        "--source",
-        str(source),
-        "--installed",
-        str(installed),
-    ]
+def run_sync(source, installed, *editors, prune=False, extra_args=None):
+    command = [sys.executable, str(SCRIPT)]
+    if extra_args:
+        command.extend(extra_args)
+    command.extend(["--source", str(source), "--installed", str(installed)])
     for editor in editors:
         command.extend(["--editor-dir", str(editor)])
     if prune:
@@ -98,3 +94,48 @@ def test_duplicate_names_fail_before_writing(tmp_path):
     assert result.returncode == 1
     assert "duplicate skill names" in result.stderr
     assert not installed.exists()
+
+
+def test_install_prints_summary_and_prunes_by_default(tmp_path):
+    source = tmp_path / "plugin"
+    installed = tmp_path / "installed"
+    editor = tmp_path / "editor"
+    write_skill(source, "review-code")
+    stale = installed / "old-skill"
+    stale.parent.mkdir(parents=True)
+    stale.symlink_to(source / "review-code")
+
+    result = run_sync(
+        source,
+        installed,
+        editor,
+        extra_args=["--install", "--dry-run"],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Next steps:" in result.stdout
+    assert "would remove 1 stale link(s)" in result.stdout
+
+
+def test_partial_args_require_explicit_paths():
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--source", str(SCRIPT.parent / ".agents/skills"), "--dry-run"],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "missing required argument" in result.stderr
+
+
+def test_bare_install_from_repo_checkout():
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--dry-run"],
+        capture_output=True,
+        text=True,
+        cwd=str(SCRIPT.parent),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Next steps:" in result.stdout
+    assert "discovered" in result.stdout

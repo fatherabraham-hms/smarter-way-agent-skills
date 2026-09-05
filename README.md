@@ -9,8 +9,9 @@ of pointing them directly at plugin-internal paths.
 ```text
 plugin checkout ──> ~/.local/share/agent-skills/installed/<skill>
                                   ▲
-       ~/.cursor/skills/<skill> ──┘
-       ~/.claude/skills/<skill> ──┘
+       ~/.cursor/skills/<skill> ──┤
+       ~/.agents/skills/<skill> ──┤
+       ~/.claude/skills/<skill> ──┤
         ~/.codex/skills/<skill> ──┘
 ```
 
@@ -30,38 +31,51 @@ Source files live under `.agents/skills/<name>/SKILL.md`.
 
 ## Install from this repo
 
-After cloning on any machine, point your editor skills directory at the stable
-namespace:
+After cloning on any machine, from the repo root:
+
+```bash
+python3 sync_skills.py
+```
+
+That links `.agents/skills` into common editor directories:
+
+| Editor / runtime | Skills directory |
+|------------------|------------------|
+| Cursor | `~/.cursor/skills` |
+| OpenClaw (personal agent skills) | `~/.agents/skills` |
+| Claude | `~/.claude/skills` |
+| Codex | `~/.codex/skills` |
+
+Stable copies live under `~/.local/share/agent-skills/installed`. After `git pull`,
+rerun the same command to refresh links.
+
+Preview first with `python3 sync_skills.py --dry-run`.
+
+If a skill path already exists as a real directory (not a symlink), move or remove
+it first — the reconciler refuses to overwrite real paths.
+
+### Advanced usage
+
+Override defaults when needed:
 
 ```bash
 python3 sync_skills.py \
   --source .agents/skills \
   --installed ~/.local/share/agent-skills/installed \
   --editor-dir ~/.cursor/skills \
-  --editor-dir ~/.claude/skills \
-  --editor-dir ~/.codex/skills \
+  --editor-dir ~/.agents/skills \
   --prune
 ```
 
-If `~/.cursor/skills/compr-code-review` already exists as a real directory
-(not a symlink), move or remove it first — the reconciler refuses to overwrite
-real paths.
-
-## Usage
+Or point at another checkout:
 
 ```bash
 python3 sync_skills.py \
-  --source /path/to/plugin-checkout \
+  --source /path/to/plugin-checkout/.agents/skills \
   --installed ~/.local/share/agent-skills/installed \
   --editor-dir ~/.cursor/skills \
-  --editor-dir ~/.claude/skills \
-  --editor-dir ~/.codex/skills \
   --prune
 ```
-
-Use `--dry-run` to inspect the planned reconciliation first. The command
-refuses to replace a real file or directory at a managed skill path; remove or
-relocate that path explicitly before retrying.
 
 The source must contain one or more directories with `SKILL.md` files. Each
 file must have a valid `name` in YAML frontmatter matching its parent directory.

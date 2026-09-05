@@ -15,6 +15,14 @@ from pathlib import Path
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
+DEFAULT_INSTALLED = Path("~/.local/share/agent-skills/installed")
+DEFAULT_EDITOR_DIRS = (
+    Path("~/.cursor/skills"),
+    Path("~/.agents/skills"),
+    Path("~/.claude/skills"),
+    Path("~/.codex/skills"),
+)
+
 
 class SyncError(RuntimeError):
     """Raised when the source skill set cannot be reconciled safely."""
@@ -162,42 +170,140 @@ def reconcile(
     return changed, removed
 
 
+def repo_source() -> Path:
+    """Default skill source: `.agents/skills` next to this script."""
+    return Path(__file__).resolve().parent / ".agents" / "skills"
+
+
+def is_install_mode(args: argparse.Namespace) -> bool:
+    if args.install:
+        return True
+    return args.source is None and args.installed is None and not args.editor_dir
+
+
+def resolve_paths(args: argparse.Namespace) -> tuple[Path, Path, list[Path], bool]:
+    install_mode = is_install_mode(args)
+    source = args.source or (repo_source() if install_mode else None)
+    installed = args.installed or (DEFAULT_INSTALLED if install_mode else None)
+    editor_dirs = args.editor_dir or (list(DEFAULT_EDITOR_DIRS) if install_mode else None)
+    prune = args.prune or (install_mode and not args.no_prune)
+
+    missing: list[str] = []
+    if source is None:
+        missing.append("--source")
+    if installed is None:
+        missing.append("--installed")
+    if not editor_dirs:
+        missing.append("--editor-dir")
+    if missing:
+        raise SyncError(
+            "missing required argument(s): "
+            + ", ".join(missing)
+            + " (or run with no arguments / --install for defaults)"
+        )
+
+    source = source.expanduser().resolve()
+    if install_mode and not source.is_dir():
+        raise SyncError(
+            f"skill source not found: {source}\n"
+            "Run from a repo checkout that contains .agents/skills/, "
+            "or pass --source explicitly."
+        )
+
+    return (
+        source,
+        installed.expanduser().resolve(),
+        [directory.expanduser().resolve() for directory in editor_dirs],
+        prune,
+    )
+
+
+def print_install_summary(
+    skills: list[Skill],
+    *,
+    source: Path,
+    installed: Path,
+    editor_dirs: list[Path],
+    dry_run: bool,
+) -> None:
+    verb = "Would install" if dry_run else "Installed"
+    editors = ", ".join(str(path) for path in editor_dirs)
+
+    print()
+    print(f"{verb} {len(skills)} skill(s):")
+    if skills:
+        for skill in skills:
+            print(f"  /{skill.name}")
+    else:
+        print("  (none)")
+    print(f"  source:    {source}")
+    print(f"  stable:    {installed}")
+    print(f"  editors:   {editors}")
+    print()
+    print("Next steps:")
+    print("  • Cursor — start a new chat; use /skill-name or attach the skill")
+    print("  • OpenClaw — restart the gateway or start a fresh agent session")
+    print("  • After git pull here, rerun: python3 sync_skills.py")
+    print()
+    print("If a skill path already exists as a real directory (not a symlink),")
+    print("move or remove it first — this script never overwrites real paths.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Reconcile Agent Skills into stable links for multiple editors."
+        description="Reconcile Agent Skills into stable links for multiple editors.",
+        epilog=(
+            "With no arguments (or --install), links this repo's .agents/skills "
+            "into ~/.cursor/skills, ~/.agents/skills, and other common editor dirs."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--source", type=Path, required=True, help="plugin/source checkout")
+    parser.add_argument(
+        "--install",
+        action="store_true",
+        help="use repo defaults (same as running with no arguments)",
+    )
+    parser.add_argument(
+        "--source",
+        type=Path,
+        help="plugin/source checkout (default with --install: .agents/skills in this repo)",
+    )
     parser.add_argument(
         "--installed",
         type=Path,
-        required=True,
-        help="stable installed namespace, e.g. ~/.local/share/agent-skills/installed",
+        help="stable installed namespace (default with --install: ~/.local/share/agent-skills/installed)",
     )
     parser.add_argument(
         "--editor-dir",
         type=Path,
         action="append",
-        required=True,
-        help="editor skills directory; repeat once per editor",
+        help="editor skills directory; repeat once per editor (default with --install: common editor dirs)",
     )
     parser.add_argument(
         "--prune",
         action="store_true",
         help="remove stale symlinks, never real files or directories",
     )
+    parser.add_argument(
+        "--no-prune",
+        action="store_true",
+        help="with --install, do not remove stale symlinks managed by this repo",
+    )
     parser.add_argument("--dry-run", action="store_true", help="show planned changes only")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
     args = build_parser().parse_args(argv)
     try:
-        skills = discover(args.source.expanduser().resolve())
+        source, installed, editor_dirs, prune = resolve_paths(args)
+        skills = discover(source)
         changed, removed = reconcile(
             skills,
-            args.installed.expanduser().resolve(),
-            [directory.expanduser().resolve() for directory in args.editor_dir],
-            prune_stale=args.prune,
+            installed,
+            editor_dirs,
+            prune_stale=prune,
             dry_run=args.dry_run,
         )
     except (OSError, SyncError) as error:
@@ -209,6 +315,15 @@ def main(argv: list[str] | None = None) -> int:
     if removed:
         verb = "would remove" if args.dry_run else "removed"
         print(f"{verb} {len(removed)} stale link(s)")
+
+    if is_install_mode(args):
+        print_install_summary(
+            skills,
+            source=source,
+            installed=installed,
+            editor_dirs=editor_dirs,
+            dry_run=args.dry_run,
+        )
     return 0
 
 
