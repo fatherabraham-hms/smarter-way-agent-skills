@@ -4,6 +4,7 @@ description: >-
   Comprehensive code review across correctness, security, maintainability,
   tests, and style for any repo. Use when the user asks for compr-code-review,
   comprehensive code review, full review, PR review, or review before merge.
+disable-model-invocation: true
 ---
 
 # Comprehensive Code Review

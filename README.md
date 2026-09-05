@@ -18,6 +18,33 @@ After a plugin update changes or moves a skill, rerun the reconciler. It
 discovers skills from `SKILL.md`, repairs all links, and can prune stale
 symlinks. Real files and directories are never deleted automatically.
 
+## Included skills
+
+| Skill | Slash command | Description |
+|-------|---------------|-------------|
+| `compr-code-review` | `/compr-code-review` | Structured PR/branch review across correctness, security, maintainability, tests, and style |
+
+Source files live under `.agents/skills/<name>/SKILL.md`.
+
+## Install from this repo
+
+After cloning on any machine, point your editor skills directory at the stable
+namespace:
+
+```bash
+python3 sync_skills.py \
+  --source .agents/skills \
+  --installed ~/.local/share/agent-skills/installed \
+  --editor-dir ~/.cursor/skills \
+  --editor-dir ~/.claude/skills \
+  --editor-dir ~/.codex/skills \
+  --prune
+```
+
+If `~/.cursor/skills/compr-code-review` already exists as a real directory
+(not a symlink), move or remove it first — the reconciler refuses to overwrite
+real paths.
+
 ## Usage
 
 ```bash
