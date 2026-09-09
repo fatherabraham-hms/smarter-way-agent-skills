@@ -41,24 +41,20 @@ root from settings, then resolve the recipe.
 
 ### Local setting (`plans_path`)
 
-Read user-local config only (never commit these paths; never invent a home
-layout):
+All smarter-way skills share **one** user-local file. Do not add per-skill
+config. Never commit real paths; never invent a home layout.
 
-1. Env `COMPR_CODE_REVIEW_PLANS_PATH` — directory of architecture plans
-   (catalog `README.md` plus `<slug>/README.md`).
-2. Else JSON file, first existing:
-   - `$COMPR_CODE_REVIEW_CONFIG`
-   - `config.json` next to this `SKILL.md` (gitignored; copy from
-     [config.example.json](config.example.json))
-   - `$XDG_CONFIG_HOME/smarter-way/compr-code-review.json`
-   - `$HOME/.config/smarter-way/compr-code-review.json`
-3. Keys:
-   - `plans_path` (required for catalog lookup) — architecture-plans root
-   - `cursor_plans` (optional) — editor plan files (`.plan.md`)
+File (first existing):
 
-Expand `~` and environment variables in those values. If `plans_path` is
-unset, skip catalog scan; still use session attachments and `arch_blueprint:`
-pointers found in files. Never commit `config.json`.
+- `$XDG_CONFIG_HOME/smarter-way/config.json`
+- `$HOME/.config/smarter-way/config.json`
+
+Key: `plans_path` — architecture-plans root (catalog `README.md` plus
+`<slug>/README.md`). Copy [config.example.json](../../../config.example.json)
+there to set it. Expand `~` and environment variables.
+
+If `plans_path` is unset, skip catalog scan; still use session attachments and
+`arch_blueprint:` pointers found in files.
 
 ### Resolve
 
@@ -67,8 +63,8 @@ slug.
 
 1. **Session:** attached or named `.plan.md`; user/todo text naming a blueprint
    slug or `arch_blueprint:` path; conversation implementing a named recipe.
-2. **Plan pointer:** matching plan frontmatter `arch_blueprint:` (in the
-   attached/named plan, or under `cursor_plans` if that setting exists).
+2. **Plan pointer:** matching plan frontmatter `arch_blueprint:` in the
+   attached or named plan file.
 3. **Blueprint pointer:** recipe frontmatter `cursor_plan:`, `arch_blueprint:`,
    `repository:`.
 4. **Branch / catalog:** only if `plans_path` is set — current branch or PR

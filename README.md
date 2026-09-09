@@ -29,13 +29,15 @@ symlinks. Real files and directories are never deleted automatically.
 
 Source files live under `.agents/skills/<name>/SKILL.md`.
 
-`compr-code-review` looks up architecture plans from a **user-local** setting,
-not from this repository. Copy
-`.agents/skills/compr-code-review/config.example.json` to
-`.agents/skills/compr-code-review/config.json` (gitignored) or
-`$HOME/.config/smarter-way/compr-code-review.json`, or set
-`COMPR_CODE_REVIEW_PLANS_PATH`. Point `plans_path` at your architecture plans
-root. Optional `cursor_plans` is the local editor plans directory.
+## Local settings
+
+One user-local file is shared by every skill in this repo:
+
+- `$XDG_CONFIG_HOME/smarter-way/config.json`
+- else `$HOME/.config/smarter-way/config.json`
+
+Copy [`config.example.json`](config.example.json) there. The only key today is
+`plans_path` (architecture-plans root). Do not add per-skill config files.
 
 ## Install from this repo
 

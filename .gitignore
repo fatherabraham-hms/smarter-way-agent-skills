@@ -217,5 +217,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Local skill settings (keep committed *example* files)
+# Local settings live under ~/.config/smarter-way/ (keep config.example.json)
+/config.json
 .agents/skills/*/config.json
