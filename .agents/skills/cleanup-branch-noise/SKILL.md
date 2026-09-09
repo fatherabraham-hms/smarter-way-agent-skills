@@ -28,11 +28,12 @@ uncommitted files, create/switch branches, commit, and push — including leavin
 the current branch for `main`/`master`. This overrides the usual “do not switch
 branches unless asked” rule for this run only.
 
-## OpenClaw path note
+## Production vs development checkouts
 
-If the workspace is `openclaw-customizations`, run all writes in **develop**
-(`/home/bucephalus3/0_Development/openclaw-customizations`). Never run this
-skill’s commits/pushes/checkouts under **prod**.
+Do not run this skill in a production or runtime clone. If the git toplevel
+has a path component exactly `prod` (for example `.../prod/<repo>`), **stop**
+and tell the user to use the development checkout used for branches and PRs.
+Never commit, push, or check out branches in prod.
 
 ## Workflow
 

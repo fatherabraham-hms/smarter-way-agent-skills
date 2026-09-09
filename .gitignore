@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local settings live under ~/.config/smarter-way/ (keep config.example.json)
+/config.json
+.agents/skills/*/config.json

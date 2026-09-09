@@ -24,12 +24,22 @@ symlinks. Real files and directories are never deleted automatically.
 | Skill | Slash command | Description |
 |-------|---------------|-------------|
 | `cleanup-branch-noise` | `/cleanup-branch-noise` | Discard branch noise, park unclear work on a CLEANUP branch, land on fresh main/master |
-| `compr-code-review` | `/compr-code-review` | Structured PR/branch review across correctness, security, maintainability, tests, and style |
+| `compr-code-review` | `/compr-code-review` | Structured PR/branch review; when an arch-blueprint is associated, also require goals met and gates passed |
 | `install-ffmpeg` | `/install-ffmpeg` | Install `ffmpeg`/`ffprobe` on macOS, Linux, or Windows when missing |
 | `media-disk-space-archiver` | `/media-disk-space-archiver` | Find large local media missing from an external archive, verify, optionally compress for a target screen size, then move approved files |
 | `smart-push-to-prod` | `/smart-push-to-prod` | Commit, push, open PR, squash-merge to main/master, refresh local default branch |
 
 Source files live under `.agents/skills/<name>/SKILL.md`.
+
+## Local settings
+
+One user-local file is shared by every skill in this repo:
+
+- `$XDG_CONFIG_HOME/smarter-way/config.json`
+- else `$HOME/.config/smarter-way/config.json`
+
+Copy [`config.example.json`](config.example.json) there. The only key today is
+`plans_path` (architecture-plans root). Do not add per-skill config files.
 
 ## Install from this repo
 
