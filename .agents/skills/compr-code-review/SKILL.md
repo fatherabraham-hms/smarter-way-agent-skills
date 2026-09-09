@@ -36,9 +36,28 @@ If the diff is empty, say so and stop.
 ## Arch-blueprint association (required)
 
 Before scoring the diff, check whether an **arch-blueprint** belongs to this
-session. Durable recipes live under
-`/home/bucephalus3/0_Development/arch-blueprints/<kebab-slug>/README.md`.
-Cursor plans (`~/.cursor/plans/*.plan.md`) are execution copies and must match.
+session. Do **not** assume a machine-specific directory. Load the local plans
+root from settings, then resolve the recipe.
+
+### Local setting (`plans_path`)
+
+Read user-local config only (never commit these paths; never invent a home
+layout):
+
+1. Env `COMPR_CODE_REVIEW_PLANS_PATH` — directory of architecture plans
+   (catalog `README.md` plus `<slug>/README.md`).
+2. Else JSON file, first existing:
+   - `$COMPR_CODE_REVIEW_CONFIG`
+   - `$XDG_CONFIG_HOME/smarter-way/compr-code-review.json`
+   - `$HOME/.config/smarter-way/compr-code-review.json`
+3. Keys:
+   - `plans_path` (required for catalog lookup) — architecture-plans root
+   - `cursor_plans` (optional) — editor plan files (`.plan.md`)
+
+Expand `~` and environment variables in those values. If `plans_path` is
+unset, skip catalog scan; still use session attachments and `arch_blueprint:`
+pointers found in files. Copy [config.example.json](config.example.json) to
+the JSON path above to set it.
 
 ### Resolve
 
@@ -47,19 +66,20 @@ slug.
 
 1. **Session:** attached or named `.plan.md`; user/todo text naming a blueprint
    slug or `arch_blueprint:` path; conversation implementing a named recipe.
-2. **Plan pointer:** matching plan frontmatter `arch_blueprint:`.
+2. **Plan pointer:** matching plan frontmatter `arch_blueprint:` (in the
+   attached/named plan, or under `cursor_plans` if that setting exists).
 3. **Blueprint pointer:** recipe frontmatter `cursor_plan:`, `arch_blueprint:`,
    `repository:`.
-4. **Branch / catalog:** current branch or PR title vs
-   `/home/bucephalus3/0_Development/arch-blueprints/README.md` and in-scope
-   paths in candidate recipes.
+4. **Branch / catalog:** only if `plans_path` is set — current branch or PR
+   title vs `$plans_path/README.md` and in-scope paths in candidate recipes.
 
 If the plan and blueprint disagree on architecture or locked decisions, record
 that as **P0** and review against the mismatch — do not pick the stale file
 silently.
 
-If none match, write **No associated arch-blueprint** and continue ordinary
-review. If the diff is architecture/plan work with no recipe, add a **P1**.
+If none match, write **No associated arch-blueprint** (and **plans_path unset**
+when catalog lookup was skipped for that reason) and continue ordinary review.
+If the diff is architecture/plan work with no recipe, add a **P1**.
 
 ### When a blueprint is associated
 

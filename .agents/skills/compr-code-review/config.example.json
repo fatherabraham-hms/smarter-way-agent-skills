@@ -1,0 +1,4 @@
+{
+  "plans_path": "/absolute/path/to/arch-blueprints",
+  "cursor_plans": "/absolute/path/to/cursor/plans"
+}
