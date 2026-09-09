@@ -32,9 +32,10 @@ Source files live under `.agents/skills/<name>/SKILL.md`.
 `compr-code-review` looks up architecture plans from a **user-local** setting,
 not from this repository. Copy
 `.agents/skills/compr-code-review/config.example.json` to
-`$HOME/.config/smarter-way/compr-code-review.json` (or set
-`COMPR_CODE_REVIEW_PLANS_PATH`) and point `plans_path` at your architecture
-plans root. Optional `cursor_plans` is the local editor plans directory.
+`.agents/skills/compr-code-review/config.json` (gitignored) or
+`$HOME/.config/smarter-way/compr-code-review.json`, or set
+`COMPR_CODE_REVIEW_PLANS_PATH`. Point `plans_path` at your architecture plans
+root. Optional `cursor_plans` is the local editor plans directory.
 
 ## Install from this repo
 

@@ -48,6 +48,8 @@ layout):
    (catalog `README.md` plus `<slug>/README.md`).
 2. Else JSON file, first existing:
    - `$COMPR_CODE_REVIEW_CONFIG`
+   - `config.json` next to this `SKILL.md` (gitignored; copy from
+     [config.example.json](config.example.json))
    - `$XDG_CONFIG_HOME/smarter-way/compr-code-review.json`
    - `$HOME/.config/smarter-way/compr-code-review.json`
 3. Keys:
@@ -56,8 +58,7 @@ layout):
 
 Expand `~` and environment variables in those values. If `plans_path` is
 unset, skip catalog scan; still use session attachments and `arch_blueprint:`
-pointers found in files. Copy [config.example.json](config.example.json) to
-the JSON path above to set it.
+pointers found in files. Never commit `config.json`.
 
 ### Resolve
 
