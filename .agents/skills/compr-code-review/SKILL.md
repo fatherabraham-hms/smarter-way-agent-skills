@@ -2,8 +2,9 @@
 name: compr-code-review
 description: >-
   Comprehensive code review across correctness, security, maintainability,
-  tests, and style for any repo. Use when the user asks for compr-code-review,
-  comprehensive code review, full review, PR review, or review before merge.
+  tests, style, and associated arch-blueprint goals and gates. Use when the
+  user asks for compr-code-review, comprehensive code review, full review, PR
+  review, or review before merge.
 disable-model-invocation: true
 ---
 
@@ -32,6 +33,63 @@ git log --oneline -5
 
 If the diff is empty, say so and stop.
 
+## Arch-blueprint association (required)
+
+Before scoring the diff, check whether an **arch-blueprint** belongs to this
+session. Durable recipes live under
+`/home/bucephalus3/0_Development/arch-blueprints/<kebab-slug>/README.md`.
+Cursor plans (`~/.cursor/plans/*.plan.md`) are execution copies and must match.
+
+### Resolve
+
+Use the first match that you can confirm by reading the files. Do not invent a
+slug.
+
+1. **Session:** attached or named `.plan.md`; user/todo text naming a blueprint
+   slug or `arch_blueprint:` path; conversation implementing a named recipe.
+2. **Plan pointer:** matching plan frontmatter `arch_blueprint:`.
+3. **Blueprint pointer:** recipe frontmatter `cursor_plan:`, `arch_blueprint:`,
+   `repository:`.
+4. **Branch / catalog:** current branch or PR title vs
+   `/home/bucephalus3/0_Development/arch-blueprints/README.md` and in-scope
+   paths in candidate recipes.
+
+If the plan and blueprint disagree on architecture or locked decisions, record
+that as **P0** and review against the mismatch — do not pick the stale file
+silently.
+
+If none match, write **No associated arch-blueprint** and continue ordinary
+review. If the diff is architecture/plan work with no recipe, add a **P1**.
+
+### When a blueprint is associated
+
+Making sure **all the goals are met** and **all the gates pass** is part of
+this review, not an optional appendix. Unmet in-scope goals and unrun/failed
+gates for work being shipped are merge blockers (**P0**). **Request changes.**
+
+Read the blueprint (and matching plan). Extract:
+
+| Kind | Where |
+|------|--------|
+| Goals | Outcome, Definition of done, locked decisions, phase objectives and exit criteria for phases in this ship |
+| Gates | Each phase Checkpoint (Smoke, Regression, E2E), Verification record, human/canary lines |
+
+Then:
+
+1. **Goals.** Every in-scope DoD item and locked decision for this ship must
+   be true in the diff. Unchecked `[ ]` on shipped work is **P0**. Out of
+   scope stays out of scope only if the blueprint says so **and** this review
+   is not shipping that phase.
+2. **Gates.** For every shipped phase, smoke, regression, and E2E must have
+   actually run and passed. `PENDING`, unchecked boxes, and “we’ll canary
+   later” are **P0**. Re-run named local commands when practical; record
+   command + result. Do not rewrite `PENDING` to PASS.
+3. **Smoke is not E2E.** `--help`, `--check-only`, and mocked unit tests do
+   not satisfy an E2E line (frozen cycle, old/new parity, production canary).
+   Tests must assert the contract the gate names, not a fallback that hides a
+   miss.
+4. **Cannot run.** Stop and say so. Do not waive the gate or Approve.
+
 ## Review dimensions
 
 Evaluate every changed file against these areas. Skip areas that do not apply.
@@ -42,6 +100,7 @@ Evaluate every changed file against these areas. Skip areas that do not apply.
 4. **Tests** — coverage of new behavior, clarity, meaningful assertions vs implementation details; note gaps
 5. **Style & conventions** — match existing repo patterns (imports, types, error handling, naming)
 6. **Performance** — only when the change touches hot paths or data access; avoid speculative nitpicks
+7. **Blueprint goals & gates** — when a recipe is associated (section above)
 
 Read surrounding code when hunks alone are insufficient to judge intent.
 
@@ -49,8 +108,8 @@ Read surrounding code when hunks alone are insufficient to judge intent.
 
 | Level | Meaning |
 |-------|---------|
-| P0 | Must fix before merge — bugs, security holes, data loss risk |
-| P1 | Should fix — likely problems, missing critical tests, fragile design |
+| P0 | Must fix before merge — bugs, security holes, data loss risk, unmet shipped goals, unrun/failed gates |
+| P1 | Should fix — likely problems, missing critical tests, fragile design, architecture work with no blueprint |
 | P2 | Nice to have — style, minor refactors, optional test improvements |
 
 Surface P0 and P1 in the summary. Mention P2 only when few or when grouped briefly.
@@ -64,6 +123,20 @@ Use this structure:
 
 ## Summary
 [1–3 sentences: overall quality and merge recommendation]
+
+## Blueprint
+[Slug + path, or "No associated arch-blueprint"]
+[Plan vs blueprint: in sync / mismatch]
+
+### Goals
+| Goal | Met? | Evidence |
+|------|------|----------|
+| ... | yes/no | file, test, or DoD item |
+
+### Gates
+| Phase | Smoke | Regression | E2E | Result |
+|-------|-------|------------|-----|--------|
+| ... | cmd + pass/fail/PENDING | ... | ... | ... |
 
 ## Findings
 
@@ -80,20 +153,25 @@ Use this structure:
 ```
 
 Rules:
-- Every finding needs `file:line` (or `file` if line unknown).
+- Every finding needs `file:line` (or `file` if line unknown). Blueprint gaps
+  may use `arch-blueprints/<slug>/README.md` plus section name.
 - Sort findings by severity (P0 first).
 - Be specific and actionable; avoid vague praise or generic advice.
 - Do not rewrite the code unless the user asks.
+- Do not **Approve** when any in-scope shipped goal is unmet or any shipped
+  gate is unchecked, `PENDING`, unrun, or failed.
 
 ## Workflow
 
 ```text
 compr-code-review:
 - [ ] 1. Determine diff scope
-- [ ] 2. Read changed files + surrounding context
-- [ ] 3. Run review dimensions checklist
-- [ ] 4. Write structured report
-- [ ] 5. Stop — do not fix unless asked
+- [ ] 2. Resolve associated arch-blueprint (or record none)
+- [ ] 3. If associated: check all goals met and all gates pass
+- [ ] 4. Read changed files + surrounding context
+- [ ] 5. Run review dimensions checklist
+- [ ] 6. Write structured report
+- [ ] 7. Stop — do not fix unless asked
 ```
 
 ### Optional deep dives
@@ -110,3 +188,4 @@ Run subagents only when requested or when P0 security/bug risk warrants a second
 - Applying fixes or opening commits unless explicitly asked
 - Force checkout or stash without user confirmation
 - Reviewing unrelated files outside the diff scope
+- Waiving blueprint gates or marking `PENDING` evidence as passed
