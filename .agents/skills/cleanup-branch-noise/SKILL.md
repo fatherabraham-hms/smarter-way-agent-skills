@@ -9,9 +9,8 @@ description: >-
   clean main/master before new work.
 disable-model-invocation: true
 metadata:
-  openclaw:
-    requires:
-      bins: ["git"]
+  requires:
+    bins: ["git"]
 ---
 
 # cleanup-branch-noise
@@ -261,4 +260,3 @@ Do **not** delete local/remote feature branches unless the user asks.
 - Stop (don't guess) on: detached HEAD, no resolvable default branch, non-main/
   master default, ff-only pull failure, or push failure (push failure is
   non-fatal for flow — just report it).
-- No prod commits for openclaw; writes stay in develop.
