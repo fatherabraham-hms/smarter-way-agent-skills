@@ -20,7 +20,7 @@ the diff and surrounding code.
 - [ ] 2. Identify standards sources
 - [ ] 3. Resolve associated arch-blueprint (or record none)
 - [ ] 4. If associated: check all goals met and all gates pass
-- [ ] 5. Run dimensions checklist; spawn Standards + Spec sub-agents in parallel
+- [ ] 5. Classify active review lanes; fan them out in parallel
 - [ ] 6. Aggregate per-axis findings (never a cross-axis winner)
 - [ ] 7. Write structured report — stop; do not fix unless asked
 ```
@@ -162,38 +162,104 @@ Read surrounding code when hunks alone are insufficient to judge intent.
 7. **Blueprint goals & gates** — when a recipe is associated (§3)
 8. **Code smells** — the §2 baseline, matched against the diff
 
-## 5. Parallel sub-agents
+## 5. Parallel review lanes
 
-Spawn both in a single message. Sub-agents have no other context — paste
-inputs in full.
+Use a **lane** for an independent question. Select only lanes the diff makes
+live, then launch every selected lane in one parallel dispatch. This replaces a
+fixed two-agent split: a small ordinary diff uses two compact reviews, while a
+risky or broad change gets the extra independent scrutiny it needs.
 
-**Standards sub-agent.** Include: the full diff command and commit list; the
-standards-source files found in §2; dimensions 3, 5, and the §2 smell baseline,
-pasted in full.
-Brief: *"Report, per file/hunk where relevant, (a) every place the diff
-violates a documented standard: cite the standard (file + the rule); and (b)
-any baseline smell you spot: name it and quote the hunk. Distinguish hard
-violations from judgement calls: documented-standard breaches can be hard, but
-baseline smells are always judgement calls, and a documented repo standard
-overrides the baseline. Skip anything tooling enforces. Under 400 words."*
+### Build the dispatch card
 
-**Spec sub-agent.** The spec is the associated blueprint + matching plan (§3).
-Include: the diff command and commit list; the path or fetched contents of the
-spec.
-Brief: *"Report: (a) requirements the spec asked for that are missing or
-partial; (b) behaviour in the diff that wasn't asked for (scope creep);
-(c) requirements that look implemented but where the implementation looks
-wrong. Quote the spec line for each finding. Under 400 words."*
+Before dispatching, make one compact card containing:
 
-If there is no associated blueprint, skip the Spec sub-agent and note this in
-the final report.
+- the exact diff command and merge-base/range;
+- changed-file manifest (path, status, changed-line count, and a short role);
+- standards-source paths;
+- blueprint and plan paths when present;
+- each lane's assigned paths and question.
+
+Do not paste the full diff, whole standards files, or whole blueprint into
+every prompt. Sub-agents share the checkout: instruct them to run the supplied
+diff command, read only their assigned hunks plus necessary neighbours, and
+open only the cited standards or spec sections. Paste a source excerpt only
+when it is unavailable in the checkout. This makes the dispatch card the
+single source of shared review context and prevents N copies of a large diff.
+
+### Select lanes
+
+| Lane | Covers | Run when |
+|------|--------|----------|
+| Behavior | Correctness and tests | Always |
+| Standards | Maintainability, style, conventions, and §2 smells | Always |
+| Security | Security | The diff crosses a trust boundary: auth/authz, secrets, user-controlled input, filesystem/network/process access, serialization, permissions, or dependency/configuration security |
+| Performance | Performance | The diff changes a hot path, query, loop over unbounded data, cache, rendering path, queue, or data-access pattern |
+| Blueprint | Blueprint goals, gates, and spec scope | An associated blueprint or plan exists |
+
+Record inactive lanes as `not applicable` in the axis summary; do not spend an
+agent on them. If no associated blueprint exists, record Blueprint as `no
+associated blueprint`, rather than spawning a speculative spec review.
+
+### Batch large lanes
+
+One lane normally gets one agent. Split a lane only when its assigned scope is
+larger than roughly 12 changed files or 800 changed lines, and split by
+dependency cluster (feature, package, or call chain), never arbitrary file
+count. Give each batch its own paths and call out shared interfaces to inspect.
+
+Keep a lane to four batches. If it is still too large, first narrow to changed
+production code and its directly affected tests, then have the parent review
+the remaining integration seams. More agents without a narrower question are
+duplicate context spend, not more coverage.
+
+### Common brief
+
+Every sub-agent receives the dispatch card and this contract:
+
+> Inspect only the assigned lane and paths, but read direct callers, callees,
+> and tests when needed to prove a finding. Return findings only: `P0|P1|P2`,
+> `file:line`, one-sentence impact, and one-sentence fix or missing test.
+> Cite the relevant code, standard, or spec line. Do not repeat the diff, give
+> praise, or report speculative concerns. Return `none found` when clean.
+> Stay under 250 words per batch.
+
+Add the lane-specific question below. The parent owns severity normalization
+and the final report, so agents should state evidence rather than debate other
+lanes or merge recommendations.
+
+**Behavior:** *"Find observable behavior that is wrong, incomplete, or
+regresses on edge/error/concurrency paths. Check whether changed behavior has
+meaningful tests that assert its contract, including failure cases where
+relevant."*
+
+**Standards:** *"Find documented-standard violations and maintainability,
+style, or §2 smell issues. Cite the standard file and rule. Documented
+violations may be hard findings; smells are always labelled judgement calls,
+and repo standards override the smell baseline. Ignore tooling-enforced rules."*
+
+**Security:** *"Trace attacker-controlled data and privilege boundaries. Find
+concrete injection, authorization, secret, unsafe-default, SSRF, path,
+deserialization, dependency, or validation flaws introduced by this diff."*
+
+**Performance:** *"Check changed execution and data-access paths for concrete
+avoidable work, unbounded growth, query amplification, cache regressions, or
+blocking behavior. Report only evidence-backed regressions."*
+
+**Blueprint:** *"Check every in-scope goal, locked decision, and shipped gate
+against the diff and verification evidence. Quote the blueprint or plan line.
+Report missing/partial requirements, scope creep, incorrect implementations,
+and each unrun, pending, or failed shipped gate."*
 
 ## 6. Aggregate
 
-Report the axes side by side. End the findings with a one-line summary per
-axis: total findings and the worst issue within that axis (if any). Never pick
-a single winner across axes — that is the reranking the separation exists to
-prevent.
+Deduplicate reports that identify the same root cause; retain every applicable
+axis in the finding's `Axis` field rather than counting it repeatedly. Verify
+each reported location and normalize severity using the table below. Then sort
+the single findings rollup P0, P1, P2 while retaining the side-by-side axis
+summary. Never choose a single winning axis — severity prioritizes work; it
+does not rerank or erase the independent reviews. End with one line per axis:
+finding count and worst issue (if any), including lanes that were not
+applicable.
 
 ## Severity
 
@@ -238,9 +304,11 @@ catalog lookup was skipped for that reason)]
 ## Axis summary
 | Axis | Findings | Worst |
 |------|----------|-------|
-| Standards | n | P_P file:line — one clause, or "—" |
-| Spec | n | ... |
-| [each review dimension] | ... | ... |
+| Behavior | n | P_ file:line — one clause, or "—" |
+| Standards | n | ... |
+| Security | n / not applicable | ... |
+| Performance | n / not applicable | ... |
+| Blueprint | n / no associated blueprint | ... |
 
 ## Tests
 [What is covered, what is missing, verdict]
