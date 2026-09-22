@@ -2,8 +2,10 @@
 name: smart-push-to-prod
 description: >-
   Commit, push, open a PR, squash-merge to the default branch, then refresh
-  local main/master. Use when the user says smart-push-to-prod, push to prod,
-  ship this, or wants the usual branch→PR→squash→main pull after an update.
+  local main/master. When SMART_PUSH_PROD_PATH maps this repo, also
+  fast-forward that prod checkout. Use when the user says smart-push-to-prod,
+  push to prod, ship this, or wants the usual branch→PR→squash→main pull
+  after an update.
 disable-model-invocation: true
 metadata:
   requires:
@@ -34,7 +36,7 @@ smart-push-to-prod:
 - [ ] 4. Push + create PR
 - [ ] 5. Review gate (ask user)
 - [ ] 6. Squash-merge (after gate)
-- [ ] 7. Refresh local default branch
+- [ ] 7. Refresh local default branch (+ mapped prod checkout)
 ```
 
 ### 1. Preconditions
@@ -57,6 +59,43 @@ Resolve **default branch `$DEFAULT`**:
 1. `git rev-parse --verify --quiet origin/main` → `$DEFAULT=main`
 2. else `git rev-parse --verify --quiet origin/master` → `$DEFAULT=master`
 3. else **stop** and ask which branch is default.
+
+Resolve **`$PROD`** from `SMART_PUSH_PROD_PATH` (see below). If the
+current toplevel is a mapped prod checkout, **stop** and name the paired
+develop path.
+
+### Prod checkout (`SMART_PUSH_PROD_PATH`)
+
+Optional. Unset means this repo has no separate prod checkout: `$PROD` stays
+empty and step 7 only refreshes the repo you are in.
+
+The value is an environment variable, not a path in this skill. Set it in
+`~/.bashrc` **above** the interactive-only return so a login shell exports it:
+
+```bash
+export SMART_PUSH_PROD_PATH="<develop-toplevel>=<prod-toplevel>"
+```
+
+Several pairs join with `;`. Both sides are absolute paths. Skip a pair whose
+two paths are the same checkout.
+
+Resolve through a login shell (the agent process may not have inherited the
+variable):
+
+```bash
+TOPLEVEL=$(git rev-parse --show-toplevel)
+MAP=$(bash -lc 'printf "%s" "${SMART_PUSH_PROD_PATH-}"')
+```
+
+Canonicalize with `realpath`. Match `$TOPLEVEL` to one side of a pair:
+
+- Equals a **prod** path → stop. Report the paired develop path.
+- Equals a **develop** path → `$PROD` is that prod path. Confirm it is a git
+  checkout (`git -C "$PROD" rev-parse --show-toplevel`).
+- No match → `$PROD` empty.
+
+Done when `$PROD` is empty or a git toplevel, and the current toplevel is not
+a mapped prod path.
 
 ### 2. Branch sync / create
 
@@ -160,6 +199,17 @@ git status -sb
 
 If `git pull --ff-only` fails, **stop** and report — do not rebase or merge.
 
+When `$PROD` is set, fast-forward that checkout to the same branch. Pull only:
+
+```bash
+git -C "$PROD" pull --ff-only origin "$DEFAULT"
+git -C "$PROD" status -sb
+```
+
+Done when this repo's `$DEFAULT` matches `origin/$DEFAULT`, and — if `$PROD`
+was set — that checkout does too. A failed prod pull stops the step; report
+it. Leave the prod checkout otherwise untouched.
+
 ## Final reply
 
 Short:
@@ -168,11 +218,13 @@ Short:
 2. PR URL (and whether it was reviewed first)
 3. Merge result
 4. Local `$DEFAULT` pull result (`ff-only` OK or error)
+5. Prod pull result when `$PROD` was set (path + `ff-only` OK or error)
 
 ## Out of scope
 
 - Force push, hard reset, `git push --force` to `$DEFAULT`
-- Updating a separate prod/deploy checkout (not all repos have one)
+- Committing, branching, or pushing in a prod checkout named by
+  `SMART_PUSH_PROD_PATH`
 - Amending pushed commits unless the user explicitly requests and commit rules
   allow
 - Skipping the review-gate question
