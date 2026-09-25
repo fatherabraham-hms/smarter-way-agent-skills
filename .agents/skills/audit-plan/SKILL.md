@@ -90,8 +90,8 @@ Read [owasp-top-10.md](owasp-top-10.md). Apply every category.
 Check the current feature's flag on every audit.
 
 1. The plan names one flag for the current feature: key, where it is set, and default. When scope is `minor-bugfix` and the plan adds no flag, N/A.
-2. A conflicting flag gates the same behavior or contradicts this flag. List each one and explain which wins. None is Pass. An unexplained conflict is Fail. When brownfield, search the codebase as well as the plan set. When rule 1 is N/A, N/A.
-3. Turning that flag off restores the previous behavior quickly: the off switch is the flag, the plan names the behavior that returns, and the return needs no code change. When rule 1 is N/A, N/A.
+2. When a flag gates the same behavior or contradicts the current feature's flag, list each one and explain which wins. None is Pass. An unexplained conflict is Fail. When brownfield, search the codebase as well as the plan set.
+3. The current feature flag can be turned off, and previous functionality returns quickly. The plan names that off switch, the behavior that returns, and the steps that make the return quick. When rule 1 is N/A, N/A.
 
 ## 4. Repair
 
