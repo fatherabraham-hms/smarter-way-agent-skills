@@ -2,8 +2,9 @@
 name: smart-push-to-prod
 description: >-
   Commit, push, open a PR, squash-merge to the default branch, then refresh
-  local main/master. When SMART_PUSH_PROD_PATH maps this repo, also
-  fast-forward that prod checkout. Use when the user says smart-push-to-prod,
+  local main/master. When SMART_PUSH_PROD_PATH maps this repository,
+  including a linked worktree of that develop checkout, also fast-forward
+  that prod checkout. Use when the user says smart-push-to-prod,
   push to prod, ship this, or wants the usual branch→PR→squash→main pull
   after an update.
 disable-model-invocation: true
@@ -14,14 +15,7 @@ metadata:
 
 # smart-push-to-prod
 
-Ship changes in the **current repo** to GitHub `main`/`master` via PR and
-squash-merge, then fast-forward the local default branch. Works in any project
-with a git remote and GitHub CLI.
-
-## When invoked
-
-User wants the full ship loop after an update. Treat invocation as explicit
-permission to commit, push, open a PR, and (after the review gate below)
+Invocation permits commit, push, opening a PR, and, after the review gate,
 squash-merge.
 
 ## Workflow
@@ -60,9 +54,9 @@ Resolve **default branch `$DEFAULT`**:
 2. else `git rev-parse --verify --quiet origin/master` → `$DEFAULT=master`
 3. else **stop** and ask which branch is default.
 
-Resolve **`$PROD`** from `SMART_PUSH_PROD_PATH` (see below). If the
-current toplevel is a mapped prod checkout, **stop** and name the paired
-develop path.
+Resolve **`$PROD`** from `SMART_PUSH_PROD_PATH` (see below). Match the
+repository, not the current worktree path. If this repo is a mapped prod
+checkout, **stop** and name the paired develop path.
 
 ### Prod checkout (`SMART_PUSH_PROD_PATH`)
 
@@ -80,22 +74,33 @@ Several pairs join with `;`. Both sides are absolute paths. Skip a pair whose
 two paths are the same checkout.
 
 Resolve through a login shell (the agent process may not have inherited the
-variable):
+variable). Identity is the shared git dir:
 
 ```bash
-TOPLEVEL=$(git rev-parse --show-toplevel)
+TOPLEVEL=$(realpath "$(git rev-parse --show-toplevel)")
+MAIN=$(realpath "$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -n 1)")
+COMMON=$(realpath "$(git rev-parse --path-format=absolute --git-common-dir)")
 MAP=$(bash -lc 'printf "%s" "${SMART_PUSH_PROD_PATH-}"')
 ```
 
-Canonicalize with `realpath`. Match `$TOPLEVEL` to one side of a pair:
+`$MAIN` is the primary checkout. A linked worktree's `$TOPLEVEL` differs; both
+are this repo.
 
-- Equals a **prod** path → stop. Report the paired develop path.
-- Equals a **develop** path → `$PROD` is that prod path. Confirm it is a git
-  checkout (`git -C "$PROD" rev-parse --show-toplevel`).
-- No match → `$PROD` empty.
+Split `$MAP` on `;`, then each pair on the first `=`. `realpath` both sides.
+A side's repo id is `realpath` of `git -C <side> rev-parse --path-format=absolute --git-common-dir`.
 
-Done when `$PROD` is empty or a git toplevel, and the current toplevel is not
-a mapped prod path.
+This repo **is the develop side** of a pair when that side's repo id equals
+`$COMMON`, or that side's realpath equals `$TOPLEVEL` or `$MAIN`. It **is the
+prod side** when the prod side matches the same way.
+
+- Prod side → **stop**. Report the paired develop path.
+- One develop side → `$PROD` is that prod path. Confirm
+  `git -C "$PROD" rev-parse --show-toplevel`.
+- Several develop sides → **stop** and name them.
+- No develop side → `$PROD` empty. Say that no pair maps this repository.
+
+Done when `$PROD` is empty or a git toplevel other than this repo, and this
+repo is not a mapped prod checkout.
 
 ### 2. Branch sync / create
 
@@ -184,8 +189,7 @@ Only after step 5 allows it:
 gh pr merge --squash --delete-branch
 ```
 
-- Prefer squash. Do not use merge commits or rebase-merge unless the user
-  overrides.
+- Do not use merge commits or rebase-merge unless the user overrides.
 - Never force-push `$DEFAULT`.
 - If merge is blocked (checks, reviews): report status and stop.
 
@@ -206,25 +210,20 @@ git -C "$PROD" pull --ff-only origin "$DEFAULT"
 git -C "$PROD" status -sb
 ```
 
-Done when this repo's `$DEFAULT` matches `origin/$DEFAULT`, and — if `$PROD`
-was set — that checkout does too. A failed prod pull stops the step; report
-it. Leave the prod checkout otherwise untouched.
+Done when this repo's `$DEFAULT` matches `origin/$DEFAULT` and, when `$PROD`
+is set, that checkout does too. A failed prod pull stops the step; report it.
+Leave the prod checkout otherwise untouched.
 
 ## Final reply
-
-Short:
 
 1. Branch name
 2. PR URL (and whether it was reviewed first)
 3. Merge result
 4. Local `$DEFAULT` pull result (`ff-only` OK or error)
-5. Prod pull result when `$PROD` was set (path + `ff-only` OK or error)
+5. Prod pull result: path + `ff-only` OK or error, or that no pair maps this repository
 
 ## Out of scope
 
 - Force push, hard reset, `git push --force` to `$DEFAULT`
-- Committing, branching, or pushing in a prod checkout named by
-  `SMART_PUSH_PROD_PATH`
 - Amending pushed commits unless the user explicitly requests and commit rules
   allow
-- Skipping the review-gate question

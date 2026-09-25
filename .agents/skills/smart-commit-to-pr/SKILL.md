@@ -14,9 +14,8 @@ metadata:
 
 # smart-commit-to-pr
 
-Land session work on a GitHub pull request and **return the PR URL**. Invocation
-is explicit permission to fetch, create/switch a feature branch, commit, and
-push — including leaving `main`/`master`. Do not squash-merge.
+Invocation permits fetch, creating or switching a feature branch, commit, and
+push, including leaving `main`/`master`. Return the PR URL.
 
 ## When invoked
 
@@ -200,6 +199,3 @@ Lead the final reply with that URL, then:
 - Never squash-merge, delete branches, or refresh local `$DEFAULT` (that is
   `smart-push-to-prod`).
 - Never force-push, rebase, or `git reset --hard`.
-- Stop (do not guess) on: detached HEAD, unresolved `$DEFAULT`, prod checkout,
-  secrets, stash/merge conflicts, failed ff-only pull, rejected push, unclear
-  session goal when a new branch is required.

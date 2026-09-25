@@ -15,24 +15,16 @@ metadata:
 
 # cleanup-branch-noise
 
-Clean up current-branch noise when starting a new session. Prefer moving forward
-without interrupting flow: discard obvious output leftovers, stop only when
-significant coding changes need a human look, otherwise park unclear work on a
-`CLEANUP-` branch and return to a fresh default branch.
-
-## When invoked
-
-Treat invocation as **explicit permission** to fetch, discard discardable
-uncommitted files, create/switch branches, commit, and push — including leaving
-the current branch for `main`/`master`. This overrides the usual “do not switch
-branches unless asked” rule for this run only.
+Invocation permits fetch, discarding discardable uncommitted files, creating and
+switching branches, commit, and push, including leaving the current branch for
+`main`/`master`. This overrides “do not switch branches unless asked” for this
+run only.
 
 ## Production vs development checkouts
 
-Do not run this skill in a production or runtime clone. If the git toplevel
-has a path component exactly `prod` (for example `.../prod/<repo>`), **stop**
-and tell the user to use the development checkout used for branches and PRs.
-Never commit, push, or check out branches in prod.
+If the git toplevel has a path component exactly `prod` (for example
+`.../prod/<repo>`), **stop** and use the development checkout. Do not commit,
+push, or check out branches there.
 
 ## Workflow
 
@@ -65,8 +57,8 @@ Resolve **default branch `$DEFAULT`** offline-first, in this order:
    and ask the user which branch is default.
 4. else (no remote) use local `main` if it exists, else `master`, else **stop**.
 
-Only consider `main` or `master` as default (per skill scope). If the repo's real
-default is something else (e.g. `develop`, `trunk`), **stop** and ask.
+If the repo's real default is not `main` or `master` (e.g. `develop`, `trunk`),
+**stop** and ask.
 
 **Detached HEAD:** if `git branch --show-current` is empty, **stop** and ask the
 user which branch to return to — do not guess or create a CLEANUP branch from a
@@ -143,10 +135,6 @@ this exact order (first match wins):
 | 3 | after discard: `U` non-empty **OR** (not merged **AND** unique commits > 0) | **CLEANUP** (case C): park remaining work, then step 5 |
 | 4 | otherwise (merged or clean, nothing unclear left) | step 5 directly (case D) |
 
-Rationale: significant always wins; discard obvious noise first; if anything
-unclear or any unmerged unique commits remain, preserve them on a CLEANUP
-branch rather than risk losing work.
-
 #### A. Significant coding changes present
 
 **Stop.** Do not discard, commit, or switch branches — even the discardable
@@ -209,7 +197,7 @@ git status --porcelain=v1 | grep -Ei '\.env$|\.env\.|id_rsa|id_ed25519|\.pem$|\.
 
    If the grep matches, **stop**, unstage (`git reset`), list the files, and wait.
 
-3. Commit and push (push failure is non-fatal):
+3. Commit and push. Do not force-push. Push failure is non-fatal:
 
 ```bash
 git commit -m "Park session branch noise on CLEANUP branch."
@@ -245,18 +233,3 @@ Confirm to the user:
 - that `$DEFAULT` matches `origin/$DEFAULT` and the tree is clean
 
 Do **not** delete local/remote feature branches unless the user asks.
-
-## Hard rules
-
-- Goal: move forward without interrupting flow when safe.
-- Significant source changes → stop + clickable list; never auto-discard them
-  (or anything else while stopped).
-- Discard only clearly discardable output/cache paths, after a dry-run preview.
-- Unclear or unmerged-unique work → `CLEANUP-` commit + push, then fresh `$DEFAULT`.
-- Never use unpathed repo-wide `git clean -fd`; path-limited `-fd` for dirs is OK.
-- Never use `git clean -x` (ignored files are out of scope).
-- No force-push, no rebase/merge on the default branch (ff-only only).
-- No secrets in commits; re-check after `git add -A` and abort if found.
-- Stop (don't guess) on: detached HEAD, no resolvable default branch, non-main/
-  master default, ff-only pull failure, or push failure (push failure is
-  non-fatal for flow — just report it).
