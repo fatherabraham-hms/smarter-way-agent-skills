@@ -23,7 +23,7 @@ symlinks. Real files and directories are never deleted automatically.
 
 | Skill | Slash command | Description |
 |-------|---------------|-------------|
-| `audit-plan` | `/audit-plan` | Five independent subagent passes (feasibility, performance and scalability, security, logical continuity, testability), then one rollup report |
+| `audit-plan` | `/audit-plan` | Six independent subagent passes (feasibility, performance and scalability, security, logical continuity, testability, feature flags), then one rollup report |
 | `cleanup-branch-noise` | `/cleanup-branch-noise` | Discard branch noise, park unclear work on a CLEANUP branch, land on fresh main/master |
 | `compr-code-review` | `/compr-code-review` | Structured PR/branch review; when an arch-blueprint is associated, also require goals met and gates passed |
 | `install-ffmpeg` | `/install-ffmpeg` | Install `ffmpeg`/`ffprobe` on macOS, Linux, or Windows when missing |

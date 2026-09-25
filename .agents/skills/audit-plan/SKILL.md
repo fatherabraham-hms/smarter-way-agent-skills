@@ -1,6 +1,6 @@
 ---
 name: audit-plan
-description: Audit one plan on five axes and roll up a Pass or Revise report.
+description: Audit one plan on six axes and roll up a Pass or Revise report.
 disable-model-invocation: true
 ---
 
@@ -32,7 +32,7 @@ Done when the card lists the plan-set paths, the codebase root when brownfield, 
 
 ## 3. Dispatch
 
-Launch five subagents in one parallel dispatch. Paste the card and that axis's numbered rules, unchanged, into each prompt. The pass reads the plan set from those paths.
+Launch six subagents in one parallel dispatch. Paste the card and that axis's numbered rules, unchanged, into each prompt. The pass reads the plan set from those paths.
 
 Return this shape only:
 
@@ -45,7 +45,7 @@ Rules:
 
 One line per rule. Security rule 1 adds one line per gap. `N/A` only when that rule's condition is off. A missing required section is Fail.
 
-Done when five reports are back.
+Done when six reports are back.
 
 ### Feasibility
 
@@ -85,6 +85,14 @@ Read [owasp-top-10.md](owasp-top-10.md). Apply every category.
 2. When UI is `present`, the plan names each surface and the assertion. When `absent`, N/A.
 3. When brownfield, the plan names existing behavior the change must leave intact. When greenfield, N/A.
 
+### Feature flags
+
+Check the current feature's flag on every audit.
+
+1. The plan names one flag for the current feature: key, where it is set, and default. When scope is `minor-bugfix` and the plan adds no flag, N/A.
+2. A conflicting flag gates the same behavior or contradicts this flag. List each one and explain which wins. None is Pass. An unexplained conflict is Fail. When brownfield, search the codebase as well as the plan set. When rule 1 is N/A, N/A.
+3. Turning that flag off restores the previous behavior quickly: the off switch is the flag, the plan names the behavior that returns, and the return needs no code change. When rule 1 is N/A, N/A.
+
 ## 4. Repair
 
 Confirm each cited location exists. Accept the pass's Pass, Fail, or N/A. Re-dispatch an axis once when a rule line is missing or the location is not in the plan set.
@@ -117,6 +125,7 @@ Write the report yourself. Deduplicate one gap that several axes hit, and keep e
 | Security | | |
 | Logical continuity | | |
 | Testability | | |
+| Feature flags | | |
 
 ## Findings
 | Axis | Rule | Location | Result | Evidence |
