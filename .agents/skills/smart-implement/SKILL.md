@@ -4,12 +4,12 @@ description: "Implement a piece of work based on a spec or set of tickets, then 
 disable-model-invocation: true
 ---
 
-Implement the work described by the user in the spec or tickets.
+Implement the user's spec or tickets.
 
 Use /tdd where possible, at pre-agreed seams.
 
-Run typechecking regularly, single test files regularly, and the full test suite once at the end.
+Run typechecking and single test files regularly; run the full suite once at the end.
 
-Once done, use /compr-code-review to review the work.
+Then /compr-code-review.
 
-Commit your work to the current branch.
+Commit on the current branch.

@@ -11,9 +11,7 @@ disable-model-invocation: true
 
 # Comprehensive Code Review
 
-Review code changes in the **current repo** before merge or after a feature is
-done. Works in any project — infer language, framework, and conventions from
-the diff and surrounding code.
+Infer language, framework, and conventions from the diff and surrounding code.
 
 ```text
 - [ ] 1. Determine diff scope
@@ -21,7 +19,7 @@ the diff and surrounding code.
 - [ ] 3. Resolve associated arch-blueprint (or record none)
 - [ ] 4. If associated: check all goals met and all gates pass
 - [ ] 5. Classify active review lanes; fan them out in parallel
-- [ ] 6. Aggregate per-axis findings (never a cross-axis winner)
+- [ ] 6. Aggregate per-axis findings
 - [ ] 7. Write structured report — stop; do not fix unless asked
 ```
 
@@ -48,10 +46,9 @@ If the diff is empty, say so and stop.
 Anything in the repo that documents how code should be written
 (CODING_STANDARDS.md, CONTRIBUTING.md, etc.).
 
-On top of whatever the repo documents, the Standards axis always carries the
-**smell baseline** below — a fixed set of Fowler code smells (Refactoring,
-ch. 3) that applies even when a repo documents nothing. Match each smell
-against the diff; each reads *what it is → how to fix*:
+The Standards axis always applies this smell baseline (Fowler, Refactoring
+ch. 3), including when the repo documents nothing. Match each smell to the diff
+(what it is → how to fix):
 
 - **Mysterious Name** — a name that doesn't reveal what it does or holds → rename it; if no honest name comes, the design's murky.
 - **Duplicated Code** — the same logic shape in more than one hunk or file → extract the shared shape, call it from both.
@@ -120,9 +117,8 @@ Outcomes:
 
 ### Goals and gates
 
-Making sure **all the goals are met** and **all the gates pass** is part of
-this review, not an optional appendix. Unmet in-scope goals and unrun/failed
-gates for shipped work are merge blockers (**P0**) → **Request changes**.
+Unmet in-scope goals and unrun or failed gates for shipped work are merge
+blockers (**P0**) → **Request changes**.
 
 Read the blueprint (and matching plan). Extract:
 
@@ -165,9 +161,7 @@ Read surrounding code when hunks alone are insufficient to judge intent.
 ## 5. Parallel review lanes
 
 Use a **lane** for an independent question. Select only lanes the diff makes
-live, then launch every selected lane in one parallel dispatch. This replaces a
-fixed two-agent split: a small ordinary diff uses two compact reviews, while a
-risky or broad change gets the extra independent scrutiny it needs.
+live, then launch every selected lane in one parallel dispatch.
 
 ### Build the dispatch card
 
@@ -183,8 +177,7 @@ Do not paste the full diff, whole standards files, or whole blueprint into
 every prompt. Sub-agents share the checkout: instruct them to run the supplied
 diff command, read only their assigned hunks plus necessary neighbours, and
 open only the cited standards or spec sections. Paste a source excerpt only
-when it is unavailable in the checkout. This makes the dispatch card the
-single source of shared review context and prevents N copies of a large diff.
+when it is unavailable in the checkout.
 
 ### Select lanes
 
@@ -209,8 +202,7 @@ count. Give each batch its own paths and call out shared interfaces to inspect.
 
 Keep a lane to four batches. If it is still too large, first narrow to changed
 production code and its directly affected tests, then have the parent review
-the remaining integration seams. More agents without a narrower question are
-duplicate context spend, not more coverage.
+the remaining integration seams.
 
 ### Common brief
 
@@ -223,9 +215,8 @@ Every sub-agent receives the dispatch card and this contract:
 > praise, or report speculative concerns. Return `none found` when clean.
 > Stay under 250 words per batch.
 
-Add the lane-specific question below. The parent owns severity normalization
-and the final report, so agents should state evidence rather than debate other
-lanes or merge recommendations.
+Add the lane-specific question below. State evidence. The parent normalizes
+severity and writes the report.
 
 **Behavior:** *"Find observable behavior that is wrong, incomplete, or
 regresses on edge/error/concurrency paths. Check whether changed behavior has
@@ -256,8 +247,7 @@ Deduplicate reports that identify the same root cause; retain every applicable
 axis in the finding's `Axis` field rather than counting it repeatedly. Verify
 each reported location and normalize severity using the table below. Then sort
 the single findings rollup P0, P1, P2 while retaining the side-by-side axis
-summary. Never choose a single winning axis — severity prioritizes work; it
-does not rerank or erase the independent reviews. End with one line per axis:
+summary. Do not pick a winning axis. End with one line per axis:
 finding count and worst issue (if any), including lanes that were not
 applicable.
 
@@ -321,9 +311,7 @@ Rules:
 
 - Every finding needs `file:line` (or `file` if line unknown). Blueprint gaps
   may use `arch-blueprints/<slug>/README.md` plus section name.
-- Sort findings by severity (P0 first).
 - Be specific and actionable; avoid vague praise or generic advice.
-- Do not rewrite the code unless the user asks.
 - Do not **Approve** when any in-scope shipped goal is unmet or any shipped
   gate is unchecked, `PENDING`, unrun, or failed.
 
@@ -337,7 +325,5 @@ the user has not said "quick review":
 
 ## Out of scope
 
-- Applying fixes or opening commits unless explicitly asked
-- Force checkout or stash without user confirmation
-- Reviewing unrelated files outside the diff scope
-- Waiving blueprint gates or marking `PENDING` evidence as passed
+- Opening commits unless explicitly asked
+- Reviewing files outside the diff scope

@@ -99,16 +99,14 @@ ACTIVE. If `mts` reports `bad` (no stat flavor works), treat the worktree as
 
 ### 4. Free $DEFAULT from a blocking worktree
 
-A **blocker** is a worktree whose branch is `$DEFAULT`, **never** `$TARGET`
-(the target lands on `$DEFAULT`; freeing it would be nonsense).
+A **blocker** is a worktree whose branch is `$DEFAULT`, **never** `$TARGET`.
 
 - No blocker → step 5.
 - **Blocker is the current (dirty) worktree:** the user is sitting on dirty
   main. **Stop and confirm** before moving — `switch -c` keeps their changes
   but renames their working branch mid-session. On yes:
   `git switch -c "prep-worktree/released-$DEFAULT-$(date -u +%Y%m%dT%H%M%SZ)"`.
-- **Blocker is another worktree:** move it (uncommitted changes carry over, so
-  nothing is lost):
+- **Blocker is another worktree:** move it (uncommitted changes carry over):
 
   ```bash
   STAMP=$(date -u +%Y%m%dT%H%M%SZ)

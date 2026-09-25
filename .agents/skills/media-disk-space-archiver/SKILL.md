@@ -14,14 +14,7 @@ metadata:
 
 # media-disk-space-archiver
 
-Free space on a personal computer by finding large local media that is **not**
-already on an external archive volume, verifying candidates, optionally
-compressing oversized video for a target screen, then moving only what the user
-approves.
-
-Works on **anyone’s** computer: ask for (or detect) the archive volume, home
-scan roots, size floor, and **target screen size** — never hard-code one user’s
-paths or a fixed display size.
+Do not hard-code paths or a display size.
 
 ## Inputs (collect before mutating)
 
@@ -41,8 +34,7 @@ Do not invent an archive path.
 ## Target screen → encode ceiling
 
 Before compressing, resolve **max output resolution** from the user’s screen
-size (or an explicit resolution they give). The goal is sharp on that display
-without keeping unnecessary 4K bulk.
+size (or an explicit resolution they give).
 
 | Target screen (diagonal) | Default max resolution | Notes |
 |--------------------------|------------------------|-------|
@@ -255,11 +247,6 @@ Short summary:
 
 ## Safety rules
 
-- Always persist the verification list as a local `.md` on the user’s machine
-  (step 4); chat-only lists are not enough.
-- Read-only until the user approves the verification list.
-- No deletes of originals without an explicit OK.
-- No overwrite of differently sized archive files.
 - Keep sensitive paths in reports factual; do not broadcast them beyond the user.
 - If free space on the archive cannot hold the approved set, stop and say so.
 

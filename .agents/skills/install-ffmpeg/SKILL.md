@@ -12,15 +12,10 @@ metadata:
 
 # install-ffmpeg
 
-Ensure `ffmpeg` and `ffprobe` are available on the **user's computer** (the
-machine where the media lives). Portable across macOS, Linux, and Windows.
-
-## When invoked
-
-Treat invocation as permission to check for `ffmpeg`/`ffprobe` and install them
-with the platform package manager when missing. Confirm with the user before any
-install that needs elevated privileges or a long download if they have not
-already asked to install ffmpeg.
+Invocation permits checking for `ffmpeg`/`ffprobe` and installing them with the
+platform package manager when missing. Confirm before an install that needs
+elevated privileges or a long download, unless the user already asked to install
+ffmpeg.
 
 ## Workflow
 
