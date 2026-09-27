@@ -31,6 +31,7 @@ symlinks. Real files and directories are never deleted automatically.
 | `smart-commit-to-pr` | `/smart-commit-to-pr` | Commit, push, and open or update a PR; cut a fresh feature branch from main/master when the current one is already merged |
 | `smart-implement` | `/smart-implement` | Implement from a spec or tickets (TDD, typecheck, tests), then `/compr-code-review`, then commit |
 | `smart-push-to-prod` | `/smart-push-to-prod` | Commit, push, open PR, squash-merge to main/master, refresh local default branch and any prod checkout mapped by `SMART_PUSH_PROD_PATH` |
+| `test-audit` | `/test-audit` | Authoring gate for new tests, plus an audit of low-value or implementation-coupled tests and the test-only seams they require |
 
 Source files live under `.agents/skills/<name>/SKILL.md`.
 
