@@ -157,6 +157,8 @@ Read surrounding code when hunks alone are insufficient to judge intent.
 6. **Performance** — only when the change touches hot paths or data access; avoid speculative nitpicks
 7. **Blueprint goals & gates** — when a recipe is associated (§3)
 8. **Code smells** — the §2 baseline, matched against the diff
+9. **Postgres best practices** — applicable rules for changed Postgres/Supabase schema, queries, migrations, indexes, RLS, connections, and transactions
+10. **Test value** — independent contracts, junk patterns, and test-only production seams when the Test audit lane applies
 
 ## 5. Parallel review lanes
 
@@ -170,6 +172,7 @@ Before dispatching, make one compact card containing:
 - the exact diff command and merge-base/range;
 - changed-file manifest (path, status, changed-line count, and a short role);
 - standards-source paths;
+- the Postgres best-practices skill and only the applicable reference paths, and/or the Test audit skill when those lanes are active;
 - blueprint and plan paths when present;
 - each lane's assigned paths and question.
 
@@ -188,6 +191,8 @@ when it is unavailable in the checkout.
 | Security | Security | The diff crosses a trust boundary: auth/authz, secrets, user-controlled input, filesystem/network/process access, serialization, permissions, or dependency/configuration security |
 | Performance | Performance | The diff changes a hot path, query, loop over unbounded data, cache, rendering path, queue, or data-access pattern |
 | Blueprint | Blueprint goals, gates, and spec scope | An associated blueprint or plan exists |
+| Postgres best practices | PostgreSQL correctness, safety, and performance rules | The diff changes Postgres/Supabase schema, migrations, SQL, queries, indexes, RLS, database functions/jobs, connection handling, or transaction/locking behavior |
+| Test audit | Test value, independent contracts, junk patterns, and test-only seams | The diff adds, changes, or removes tests/test support, or changes production seams or behavior whose proof depends on in-scope tests |
 
 Record inactive lanes as `not applicable` in the axis summary; do not spend an
 agent on them. If no associated blueprint exists, record Blueprint as `no
@@ -240,6 +245,10 @@ blocking behavior. Report only evidence-backed regressions."*
 against the diff and verification evidence. Quote the blueprint or plan line.
 Report missing/partial requirements, scope creep, incorrect implementations,
 and each unrun, pending, or failed shipped gate."*
+
+**Postgres best practices:** *"Read `.agents/skills/postgres-best-practices/SKILL.md` and the applicable files under its `references/` directory. Check changed database work against relevant rules and PostgreSQL semantics; report only concrete violations or risks supported by the diff and cited rule. Account for repository and database-version context; explain any apparent rule exception with evidence."*
+
+**Test audit:** *"Read `.agents/skills/test-audit/SKILL.md`. In the assigned scope, evaluate changed tests and relevant test-only seams against its authoring gate, junk patterns, and retention bar. Read the production owner and overlapping tests needed to establish whether coverage protects an independent contract or is redundant/implementation-coupled. Report evidence-backed test-quality findings and meaningful coverage gaps; do not recommend deletion based on a pattern match alone. Discovery only; make no edits."*
 
 ## 6. Aggregate
 
@@ -299,9 +308,11 @@ catalog lookup was skipped for that reason)]
 | Security | n / not applicable | ... |
 | Performance | n / not applicable | ... |
 | Blueprint | n / no associated blueprint | ... |
+| Postgres best practices | n / not applicable | ... |
+| Test audit | n / not applicable | ... |
 
 ## Tests
-[What is covered, what is missing, verdict]
+[Behavior coverage and gaps; include the Test audit verdict/findings when that lane is active]
 
 ## Merge recommendation
 **Approve** / **Approve with fixes** / **Request changes** — one sentence why.
