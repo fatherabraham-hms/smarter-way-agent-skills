@@ -1,11 +1,8 @@
 ---
 name: smart-commit-to-pr
 description: >-
-  Commit current work, push, and open or update a GitHub PR. On an unmerged
-  feature branch, keep that branch and reuse its open PR. On main/master or a
-  merged branch, cut a fresh feature branch from the default branch named for
-  the session goal. Use when the user says smart-commit-to-pr, commit to PR,
-  open a PR, or wants the PR link for this session's work.
+  Commit current work, push, and open or update a GitHub PR from the current
+  checkout without modifying other worktrees.
 disable-model-invocation: true
 metadata:
   requires:
@@ -14,8 +11,10 @@ metadata:
 
 # smart-commit-to-pr
 
-Invocation permits fetch, creating or switching a feature branch, commit, and
-push, including leaving `main`/`master`. Return the PR URL.
+Invocation permits fetch, creating or switching a feature branch in the
+current checkout, commit, and push. Return the PR URL. Every other worktree is
+owned by another session: do not inspect, checkout, switch, stash, reset,
+clean, delete, or repair it.
 
 ## When invoked
 
@@ -24,8 +23,8 @@ Copy and track:
 ```text
 smart-commit-to-pr:
 - [ ] 1. Preconditions
-- [ ] 2. Fetch + classify branch (LIVE vs MERGED)
-- [ ] 3. Ensure feature branch
+- [ ] 2. Fetch + classify branch (BASE, LIVE, or MERGED)
+- [ ] 3. Ensure a feature branch in this checkout
 - [ ] 4. Commit (skip if nothing to commit)
 - [ ] 5. Push + open or reuse PR
 - [ ] 6. Verify and return the PR URL
@@ -56,47 +55,59 @@ Resolve **`$DEFAULT`**:
 
 ## 2. Fetch + classify branch
 
+Refresh once. If fetch fails, continue only when the required
+`origin/$DEFAULT` ref still exists; report that the classification used the
+existing ref. Do not retry indefinitely.
+
 ```bash
-git fetch origin || true
+git fetch origin || printf 'FETCH_FAILED_USING_EXISTING_REFS\n' >&2
 CURRENT=$(git branch --show-current)
+DEFAULT_REF="origin/$DEFAULT"
+git rev-parse --verify --quiet "refs/remotes/$DEFAULT_REF" >/dev/null || {
+  echo "STOP: origin/$DEFAULT is unavailable" >&2
+  exit 1
+}
 ```
 
-Classify **LIVE** vs **MERGED** — first match wins:
+Classify — first match wins:
 
 | # | Condition | Class |
-|---|-----------|--------|
-| 1 | `$CURRENT` is `$DEFAULT` | **MERGED** |
+|---|---|---|
+| 1 | `$CURRENT` is `$DEFAULT` or starts with `prep-worktree/` | **BASE** |
 | 2 | `gh pr view --json state -q .state` is `MERGED` | **MERGED** |
 | 3 | `git merge-base --is-ancestor HEAD origin/$DEFAULT` | **MERGED** |
 | 4 | otherwise | **LIVE** |
 
-`gh pr view` with no PR → treat as no GitHub PR (do not fail the run).
+`gh pr view` with no PR → treat as no GitHub PR. A `prep-worktree/...` branch
+is a session base branch, not a PR head; it must be converted to a
+`feature/...` branch before pushing.
 
-Record dirty (`git status --porcelain=v1` non-empty) and unique commit count
-(`git rev-list --count origin/$DEFAULT..HEAD`).
+Record:
 
-**Has work** if any of: dirty tree; LIVE with unique commits > 0; `$CURRENT` is
-`$DEFAULT` with unique commits > 0.
+```bash
+DIRTY=$(git status --porcelain=v1)
+UNIQUE=$(git rev-list --count "origin/$DEFAULT..HEAD")
+```
+
+**Has work** if any of:
+
+- `DIRTY` is non-empty.
+- **LIVE** with `UNIQUE > 0`.
+- **BASE** with `UNIQUE > 0`.
 
 **Already done:** LIVE, clean tree, `HEAD` matches `origin/$CURRENT` (already
 pushed), and an OPEN or DRAFT PR exists for this head → skip to step 6 and
 return that PR URL.
 
-**Nothing to land:** not has-work, and no OPEN/DRAFT PR to return → **stop**.
-Say the branch is already in `$DEFAULT` (or has no new work) and there is
-nothing to PR.
+**Nothing to land:** no work and no OPEN/DRAFT PR to return → **stop**. Say the
+branch is already in `$DEFAULT` or has no new work and there is nothing to PR.
 
-## 3. Ensure feature branch
+## 3. Ensure a feature branch in this checkout
 
-### LIVE
-
-Keep `$CURRENT`. Do not rename. Do not merge `$DEFAULT`.
-
-### MERGED
-
-Need a free `feature/<slug>` from the session goal (chat title, user's stated
-goal, or a one-line summary of the dirty diff). Lowercase, hyphens, max ~50
-chars. If the goal is unclear, **stop and ask** — do not use `feature/update`.
+First derive a free branch name from the session goal (chat title, user's
+stated goal, or a one-line summary of the dirty diff). Lowercase, hyphens, max
+about 50 characters. If the goal is unclear, **stop and ask** — do not use
+`feature/update`.
 
 ```bash
 SLUG="<kebab-from-goal>"
@@ -109,36 +120,87 @@ while git rev-parse --verify --quiet "refs/heads/$BRANCH" \
 done
 ```
 
-Then **one** of these (do not mix):
+### LIVE
 
-**On `$DEFAULT`** (unique commits and/or dirty files come along):
+Keep `$CURRENT`. Do not rename it, merge `$DEFAULT`, or inspect another
+worktree.
+
+### BASE: current `$DEFAULT` or `prep-worktree/*`
+
+Preserve current-worktree commits and files. The branch choice depends on
+whether this checkout already contains commits beyond `origin/$DEFAULT`:
 
 ```bash
-git pull --ff-only origin $DEFAULT    # stop on failure; do not rebase or merge
-git checkout -b "$BRANCH"
-git branch --force "$DEFAULT" origin/$DEFAULT   # only while on $BRANCH
+if [ "$UNIQUE" -gt 0 ]; then
+  # Carries implementation commits and any dirty files from this checkout.
+  git checkout -b "$BRANCH"
+else
+  # The base has no unique commits. Refresh the branch point, carrying only
+  # this checkout's dirty files forward.
+  STASHED=0
+  if [ -n "$DIRTY" ]; then
+    git stash push -u -m "smart-commit-to-pr current checkout" || {
+      echo "STOP: could not stash current-checkout changes" >&2
+      exit 1
+    }
+    STASHED=1
+  fi
+  git checkout -b "$BRANCH" "origin/$DEFAULT" || {
+    echo "STOP: could not create $BRANCH from origin/$DEFAULT" >&2
+    exit 1
+  }
+  if [ "$STASHED" -eq 1 ]; then
+    git stash pop || {
+      echo "STOP: stash conflict while restoring current-checkout changes" >&2
+      git status -sb
+      exit 1
+    }
+  fi
+fi
 ```
 
-**On a merged feature** (do not re-PR squash leftovers). Branch from
-`origin/$DEFAULT`:
+This is the normal handoff from `prep-worktree`: the isolated prep branch is
+never pushed as a PR head. The branch switch above changes only the current
+checkout.
+
+### MERGED
+
+Do not re-PR squash leftovers from the merged branch. Preserve dirty files in
+this checkout, but branch from refreshed `$DEFAULT`:
 
 ```bash
-git stash push -u -m "smart-commit-to-pr"   # skip if clean
-git checkout -b "$BRANCH" origin/$DEFAULT
-git stash pop                              # skip if no stash; on conflict, stop and list files
+STASHED=0
+if [ -n "$DIRTY" ]; then
+  git stash push -u -m "smart-commit-to-pr current checkout" || {
+    echo "STOP: could not stash current-checkout changes" >&2
+    exit 1
+  }
+  STASHED=1
+fi
+git checkout -b "$BRANCH" "origin/$DEFAULT" || {
+  echo "STOP: could not create $BRANCH from origin/$DEFAULT" >&2
+  exit 1
+}
+if [ "$STASHED" -eq 1 ]; then
+  git stash pop || {
+    echo "STOP: stash conflict while restoring current-checkout changes" >&2
+    git status -sb
+    exit 1
+  }
+fi
 ```
 
 ## 4. Commit
 
 If the tree is clean, skip — do not create an empty commit.
 
-Otherwise follow the repo commit protocol: `git status`, `git diff`, and
-`git log` in parallel; stage only relevant files; commit via HEREDOC.
+Otherwise follow the repo commit protocol: `git status`, `git diff`, and `git
+log` in parallel; stage only relevant files; commit via HEREDOC.
 
 - Message: 1–2 sentences, why over what; match recent `git log` style.
 - Never `--no-verify` / `--no-gpg-sign`. Never commit secrets.
-- After `git add`, re-scan staged paths for the secrets patterns in step 1;
-  if any match, `git reset` and **stop**.
+- After `git add`, re-scan staged paths for the secrets patterns in step 1; if
+  any match, `git reset` and **stop**.
 - If a hook rejects the commit, fix and make a **new** commit (do not amend
   unless the user asked and the commit has not been pushed).
 
@@ -148,7 +210,8 @@ Otherwise follow the repo commit protocol: `git status`, `git diff`, and
 git push -u origin HEAD
 ```
 
-If push is rejected (non-fast-forward), **stop** and report. Do not force-push.
+If push is rejected (non-fast-forward), **stop** and report. Do not
+force-push.
 
 Reuse an existing **open or draft** PR for this head:
 
@@ -172,8 +235,8 @@ EOF
 )"
 ```
 
-Title from the session goal / commit subject. Capture the URL from `gh pr create`
-output.
+Title from the session goal / commit subject. Capture the URL from `gh pr
+create` output.
 
 ## 6. Verify and return the PR URL
 
@@ -183,9 +246,9 @@ gh pr view --json url,state,headRefName
 
 Done only when **all** are true:
 
-- `headRefName` equals the current branch
-- `state` is `OPEN` or `DRAFT`
-- `url` is a non-empty `https://github.com/...` PR link
+- `headRefName` equals the current branch.
+- `state` is `OPEN` or `DRAFT`.
+- `url` is a non-empty `https://github.com/...` PR link.
 
 Lead the final reply with that URL, then:
 
@@ -195,7 +258,9 @@ Lead the final reply with that URL, then:
 
 ## Hard rules
 
-- Never open a PR whose head is `$DEFAULT`.
+- Never open a PR whose head is `$DEFAULT` or `prep-worktree/*`.
+- Never force-update `$DEFAULT`; never rename or delete another worktree's
+  branch.
 - Never squash-merge, delete branches, or refresh local `$DEFAULT` (that is
   `smart-push-to-prod`).
 - Never force-push, rebase, or `git reset --hard`.

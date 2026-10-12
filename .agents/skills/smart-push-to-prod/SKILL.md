@@ -10,13 +10,34 @@ description: >-
 disable-model-invocation: true
 metadata:
   requires:
-    bins: ["git", "gh"]
+    bins: ["git", "gh", "python3"]
 ---
 
 # smart-push-to-prod
 
 Invocation permits commit, push, opening a PR, and, after the review gate,
 squash-merge.
+
+## Scripted terminal work
+
+Set `$SCRIPT` before the workflow. The default path is the installed skill;
+override it when this checkout is using another skill installation:
+
+```bash
+SCRIPT="${SMART_PUSH_SCRIPT:-$HOME/.agents/skills/smart-push-to-prod/scripts/smart_push_git.py}"
+if [ ! -f "$SCRIPT" ]; then
+  SCRIPT="$HOME/.local/share/agent-skills/installed/smart-push-to-prod/scripts/smart_push_git.py"
+fi
+python3 "$SCRIPT" preflight
+python3 "$SCRIPT" branch-sync --branch "feature/<kebab-slug>"
+python3 "$SCRIPT" refresh --pr-url "$PR_URL"
+```
+
+Use the helper for deterministic git work; it emits one compact JSON result and
+keeps the review, commit-content, and merge decisions visible to the agent.
+The helper never stages, commits, pushes, or merges a PR. A nonzero exit stops
+the current step unless the result explicitly identifies a nonfatal local
+default-branch pull failure.
 
 ## Workflow
 
@@ -38,25 +59,16 @@ smart-push-to-prod:
 In the current repo (workspace root):
 
 ```bash
-git rev-parse --show-toplevel
-git status -sb
-git remote
+python3 "$SCRIPT" preflight
 ```
 
-- Abort if not a git repo or no remote.
+- Abort if the helper reports a nonzero exit, no `origin`, or no default ref.
+- Treat filename- or content-based `secret_paths` in its JSON result as a hard
+  stop and list those paths.
 - Abort if there is nothing to commit **and** nothing already committed on the
   feature branch that still needs a PR/merge (say so and stop).
-- Do not commit secrets (`.env`, credentials, private keys).
-
-Resolve **default branch `$DEFAULT`**:
-
-1. `git rev-parse --verify --quiet origin/main` → `$DEFAULT=main`
-2. else `git rev-parse --verify --quiet origin/master` → `$DEFAULT=master`
-3. else **stop** and ask which branch is default.
-
-Resolve **`$PROD`** from `SMART_PUSH_PROD_PATH` (see below). Match the
-repository, not the current worktree path. If this repo is a mapped prod
-checkout, **stop** and name the paired develop path.
+- Do not commit secrets. The helper reports `toplevel`, `branch`, `default`,
+  `prod`, `dirty`, and `secret_paths`; retain those values for later steps.
 
 ### Prod checkout (`SMART_PUSH_PROD_PATH`)
 
@@ -73,62 +85,31 @@ export SMART_PUSH_PROD_PATH="<develop-toplevel>=<prod-toplevel>"
 Several pairs join with `;`. Both sides are absolute paths. Skip a pair whose
 two paths are the same checkout.
 
-Resolve through a login shell (the agent process may not have inherited the
-variable). Identity is the shared git dir:
-
-```bash
-TOPLEVEL=$(realpath "$(git rev-parse --show-toplevel)")
-MAIN=$(realpath "$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -n 1)")
-COMMON=$(realpath "$(git rev-parse --path-format=absolute --git-common-dir)")
-MAP=$(bash -lc 'printf "%s" "${SMART_PUSH_PROD_PATH-}"')
-```
-
-`$MAIN` is the primary checkout. A linked worktree's `$TOPLEVEL` differs; both
-are this repo.
-
-Split `$MAP` on `;`, then each pair on the first `=`. `realpath` both sides.
-A side's repo id is `realpath` of `git -C <side> rev-parse --path-format=absolute --git-common-dir`.
-
-This repo **is the develop side** of a pair when that side's repo id equals
-`$COMMON`, or that side's realpath equals `$TOPLEVEL` or `$MAIN`. It **is the
-prod side** when the prod side matches the same way.
-
-- Prod side → **stop**. Report the paired develop path.
-- One develop side → `$PROD` is that prod path. Confirm
-  `git -C "$PROD" rev-parse --show-toplevel`.
-- Several develop sides → **stop** and name them.
-- No develop side → `$PROD` empty. Say that no pair maps this repository.
-
-Done when `$PROD` is empty or a git toplevel other than this repo, and this
-repo is not a mapped prod checkout.
+The helper reads an inherited mapping first, then parses a static assignment in
+the documented `~/.bashrc` fallback without executing shell startup code, and
+matches repository identity across the primary
+checkout and linked worktrees. It stops for a mapped prod checkout, multiple
+develop-side matches, an invalid mapping, or a missing prod git checkout. Use
+its `prod` result as the only prod path.
 
 ### 2. Branch sync / create
 
-```bash
-git fetch origin
-git branch --show-current
-git rev-parse HEAD origin/$DEFAULT
-```
+Choose the feature slug from the session goal. The preflight result supplies
+the current branch and `$DEFAULT`.
 
 **If current branch is `$DEFAULT` (or equals `origin/$DEFAULT` and you are on `$DEFAULT`):**
 
-1. Confirm local default is current: `git pull --ff-only origin $DEFAULT`.
-2. Create a feature branch from session context:
-   - Prefer chat/session title + short change summary.
-   - Format: `feature/<kebab-slug>` (lowercase, hyphens, max ~60 chars).
-   - Example: session “dashboard recs UI” → `feature/dashboard-recs-ui`.
-3. `git checkout -b feature/<kebab-slug>`
+1. Prefer chat/session title + short change summary.
+2. Format: `feature/<kebab-slug>` (lowercase, hyphens, max ~60 chars).
+3. Run `python3 "$SCRIPT" branch-sync --branch "feature/<kebab-slug>"`.
 
 **If current branch is not `$DEFAULT`:**
 
-1. Keep the branch.
-2. Ensure it includes latest `$DEFAULT`:
-   ```bash
-   git merge origin/$DEFAULT
-   ```
-   - No interactive rebase.
-   - If merge conflicts: stop, report files, do not force through.
-3. Do **not** rename the branch unless the user asks.
+1. Run `python3 "$SCRIPT" branch-sync` to fetch and merge `origin/$DEFAULT`.
+2. Keep the branch; do not rename it.
+
+The helper stops on fetch, fast-forward pull, branch creation, or merge
+conflicts. It never rebases, resets, or force-updates a branch.
 
 ### 3. Commit
 
@@ -166,7 +147,7 @@ EOF
 If a PR already exists for the branch, reuse it
 (`gh pr view --json url,number,state`).
 
-Capture the PR URL.
+Capture the PR URL as `$PR_URL`.
 
 ### 5. Review gate (required)
 
@@ -191,28 +172,28 @@ gh pr merge --squash --delete-branch
 
 - Do not use merge commits or rebase-merge unless the user overrides.
 - Never force-push `$DEFAULT`.
-- If merge is blocked (checks, reviews): report status and stop.
+- If the command fails or merge is blocked (checks, reviews), report status and
+  stop before pulling any checkout.
 
 ### 7. Refresh local default branch
 
-```bash
-git checkout $DEFAULT
-git pull --ff-only origin $DEFAULT
-git status -sb
-```
-
-If `git pull --ff-only` fails, **stop** and report — do not rebase or merge.
-
-When `$PROD` is set, fast-forward that checkout to the same branch. Pull only:
+Run the helper only after the squash merge command succeeds:
 
 ```bash
-git -C "$PROD" pull --ff-only origin "$DEFAULT"
-git -C "$PROD" status -sb
+python3 "$SCRIPT" refresh --pr-url "$PR_URL"
 ```
 
-Done when this repo's `$DEFAULT` matches `origin/$DEFAULT` and, when `$PROD`
-is set, that checkout does too. A failed prod pull stops the step; report it.
-Leave the prod checkout otherwise untouched.
+The helper first confirms that the PR belongs to this repository, targets
+`$DEFAULT`, and has `state: MERGED` with non-empty `mergedAt` and
+`mergeCommit`; otherwise it refreshes neither checkout. It refreshes the
+worktree that owns `$DEFAULT`, leaving a linked feature worktree untouched,
+and refuses to refresh a dirty local default worktree. Tracked prod changes
+also stop the workflow; existing untracked prod files are preserved. It
+attempts the local `git pull --ff-only` and continues to prod when that local
+pull fails. The mapped prod checkout must already be on `$DEFAULT` and is
+pulled only after the merge confirmation. A failed prod pull stops the
+workflow and must be reported. The JSON result includes both pull outcomes and
+both status summaries. Leave both checkouts otherwise untouched.
 
 ## Final reply
 
