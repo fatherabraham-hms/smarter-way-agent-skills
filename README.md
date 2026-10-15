@@ -29,7 +29,7 @@ symlinks. Real files and directories are never deleted automatically.
 | `install-ffmpeg` | `/install-ffmpeg` | Install `ffmpeg`/`ffprobe` on macOS, Linux, or Windows when missing |
 | `media-disk-space-archiver` | `/media-disk-space-archiver` | Find large local media missing from an external archive, verify, optionally compress for a target screen size, then move approved files |
 | `postgres-best-practices` | `/postgres-best-practices` | Postgres best practices for schema, queries, indexes, connections, RLS, and diagnostics; load before writing or changing anything in a Postgres database |
-| `prep-worktree` | `/prep-worktree` | Put the session on a clean, up-to-date default snapshot without touching any other worktree |
+| `prep-worktree` | `/prep-worktree` | Always create a fresh isolated worktree from a clean, up-to-date default snapshot |
 | `smart-commit-to-pr` | `/smart-commit-to-pr` | Commit, push, and open or update a PR; cut a fresh feature branch from main/master when the current one is already merged |
 | `smart-implement` | `/smart-implement` | Implement from a spec or tickets (TDD, typecheck, tests), then `/compr-code-review`, then commit |
 | `smart-push-to-prod` | `/smart-push-to-prod` | Commit, push, open PR, squash-merge to main/master, refresh local default branch and any prod checkout mapped by `SMART_PUSH_PROD_PATH` |
@@ -51,6 +51,19 @@ Copy [`config.example.json`](config.example.json) there. The only key today is
 (`<develop-toplevel>=<prod-toplevel>`, pairs separated by `;`). Set it in
 `~/.bashrc` above any interactive-only return. Unset means that skill only
 refreshes the current repo.
+
+`prep-worktree` requires `PREP_WORKTREE_PROTECTED_DEV_PATH` to name the
+absolute path of a clean, pristine development checkout on the repository's
+default branch. It never lands on or mutates that checkout. Its optional
+`PREP_WORKTREE_MAX` setting defaults to `20`; when the registered worktree count
+reaches that limit, the skill lists clean, unlocked worktrees with at least
+48 hours of last-observed filesystem access and asks for explicit cleanup
+approval before creating another. For example:
+
+```bash
+export PREP_WORKTREE_PROTECTED_DEV_PATH=/absolute/path/to/dev-checkout
+export PREP_WORKTREE_MAX=20
+```
 
 ## Install from this repo
 
