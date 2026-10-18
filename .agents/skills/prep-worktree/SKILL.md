@@ -107,11 +107,11 @@ PROTECTED_BRANCH=$(git -C "$PROTECTED_DEV_PATH" branch --show-current)
 test "$PROTECTED_BRANCH" = "$DEFAULT" || {
   echo "STOP: protected dev checkout must be on $DEFAULT, found ${PROTECTED_BRANCH:-detached HEAD}" >&2; exit 1;
 }
-PROTECTED_STATUS=$(git -C "$PROTECTED_DEV_PATH" status --porcelain=v1 --untracked-files=all --ignored) || {
+PROTECTED_STATUS=$(git -C "$PROTECTED_DEV_PATH" status --porcelain=v1 --untracked-files=all) || {
   echo "STOP: could not inspect protected dev checkout" >&2; exit 1;
 }
 test -z "$PROTECTED_STATUS" || {
-  echo "STOP: protected dev checkout is not clean" >&2; exit 1;
+  echo "STOP: protected dev checkout has tracked changes or untracked files" >&2; exit 1;
 }
 for operation_marker in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG rebase-apply rebase-merge sequencer; do
   operation_path=$(git -C "$PROTECTED_DEV_PATH" rev-parse --git-path "$operation_marker") || exit 1
@@ -123,6 +123,13 @@ done
 
 The current branch and dirty set are report-only. A divergent local branch does
 not block prep and never justifies changing the current checkout.
+
+Pristine checks deliberately ignore gitignored files. Generated output such as
+`logs/`, `__pycache__/`, `.venv/`, build directories, and editor caches must
+never stop prep-worktree: they are local, regenerable, and invisible to Git.
+Only tracked modifications and untracked non-ignored files make a checkout
+dirty. The protected path may equal the current checkout; when it does, the same
+ignored-artifact exemption applies to that single checkout.
 
 ### 2. Refresh the default ref without changing a checkout
 
@@ -201,8 +208,9 @@ An eligible cleanup candidate must:
 - exist and be neither `CURRENT` nor `PROTECTED_DEV_PATH`;
 - not be equal to or contained by either checkout after canonicalization;
 - not be marked `locked` in `git worktree list --porcelain`;
-- have no tracked, untracked, or ignored files (`git status --porcelain=v1
-  --untracked-files=all --ignored` must be empty); and
+- have no tracked or untracked non-ignored files (`git status --porcelain=v1
+  --untracked-files=all` must be empty; gitignored files never disqualify a
+  candidate); and
 - have filesystem access-time evidence at least 48 hours old.
 
 Use `stat -c %X` on GNU/Linux or `stat -f %a` on BSD/macOS. Access time is a
@@ -221,7 +229,7 @@ git worktree remove -- "$CANDIDATE_PATH"
 
 Before each removal, while still holding the coordination lock, re-enumerate
 the worktree and verify that its canonical path, branch, HEAD, lock state,
-clean/ignored status, and explicit approval record still match the candidate
+clean status, and explicit approval record still match the candidate
 shown to the user. If any value changed, do not remove it; report it as changed.
 Reject a candidate if it contains or is contained by the current checkout,
 protected checkout, or any other registered worktree. Never remove by a path
@@ -296,8 +304,9 @@ another checkout.
 ### 5. Verify and report
 
 Verify that `git -C "$WT_PATH" branch --show-current` equals `$BRANCH`, its
-`HEAD` equals `$BASE_SHA`, and its status including ignored files is empty. On failure, stop
-and report without touching another checkout.
+`HEAD` equals `$BASE_SHA`, and its status (tracked and untracked non-ignored
+files) is empty. Gitignored files never fail this check. On failure, stop and
+report without touching another checkout.
 
 Report:
 
