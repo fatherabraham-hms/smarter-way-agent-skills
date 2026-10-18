@@ -85,6 +85,10 @@ That links `.agents/skills` into common editor directories:
 Stable copies live under `~/.local/share/agent-skills/installed`. After `git pull`,
 rerun the same command to refresh links.
 
+Install mode resolves the repository's primary development checkout. Running it
+from a linked worktree still links the development directory, never the
+ephemeral worktree.
+
 Preview first with `python3 sync_skills.py --dry-run`.
 
 If a skill path already exists as a real directory (not a symlink), move or remove
