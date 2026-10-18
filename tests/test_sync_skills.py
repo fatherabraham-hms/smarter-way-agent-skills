@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -139,3 +140,54 @@ def test_bare_install_from_repo_checkout():
     assert result.returncode == 0, result.stderr
     assert "Next steps:" in result.stdout
     assert "discovered" in result.stdout
+
+
+def test_install_from_linked_worktree_targets_main_checkout(tmp_path):
+    dev = tmp_path / "dev"
+    dev.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=dev, check=True)
+    skill = write_skill(dev / ".agents" / "skills", "review-code")
+    shutil.copy(SCRIPT, dev / "sync_skills.py")
+    subprocess.run(["git", "add", "."], cwd=dev, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "user.name=Test",
+            "commit",
+            "-qm",
+            "init",
+        ],
+        cwd=dev,
+        check=True,
+    )
+
+    linked = tmp_path / "linked"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "feature", str(linked)],
+        cwd=dev,
+        check=True,
+    )
+    installed = tmp_path / "installed"
+    editor = tmp_path / "editor"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(linked / "sync_skills.py"),
+            "--install",
+            "--installed",
+            str(installed),
+            "--editor-dir",
+            str(editor),
+        ],
+        cwd=linked,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (installed / "review-code").resolve() == skill.resolve()
+    assert (editor / "review-code").resolve() == skill.resolve()

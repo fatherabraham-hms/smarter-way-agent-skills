@@ -7,6 +7,7 @@ import argparse
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -170,9 +171,27 @@ def reconcile(
     return changed, removed
 
 
+def primary_worktree(root: Path) -> Path:
+    """Resolve the repository's main worktree so links never target a linked one."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "worktree", "list", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return root
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            candidate = Path(line[len("worktree ") :])
+            return candidate.resolve() if candidate.is_dir() else root
+    return root
+
+
 def repo_source() -> Path:
-    """Default skill source: `.agents/skills` next to this script."""
-    return Path(__file__).resolve().parent / ".agents" / "skills"
+    """Default skill source: `.agents/skills` in the primary development checkout."""
+    return primary_worktree(Path(__file__).resolve().parent) / ".agents" / "skills"
 
 
 def is_install_mode(args: argparse.Namespace) -> bool:
