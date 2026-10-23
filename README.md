@@ -29,6 +29,7 @@ symlinks. Real files and directories are never deleted automatically.
 | `install-ffmpeg` | `/install-ffmpeg` | Install `ffmpeg`/`ffprobe` on macOS, Linux, or Windows when missing |
 | `media-disk-space-archiver` | `/media-disk-space-archiver` | Find large local media missing from an external archive, verify, optionally compress for a target screen size, then move approved files |
 | `postgres-best-practices` | `/postgres-best-practices` | Postgres best practices for schema, queries, indexes, connections, RLS, and diagnostics; load before writing or changing anything in a Postgres database |
+| `python-code-review` | `/python-code-review` | Python review focused on architecture, scalability, performance, known bad patterns, and code hygiene |
 | `prep-worktree` | `/prep-worktree` | Always create a fresh isolated worktree from a clean, up-to-date default snapshot |
 | `smart-commit-to-pr` | `/smart-commit-to-pr` | Commit, push, and open or update a PR; cut a fresh feature branch from main/master when the current one is already merged |
 | `smart-implement` | `/smart-implement` | Implement from a spec or tickets (TDD, typecheck, tests), then `/compr-code-review`, then commit |
