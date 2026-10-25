@@ -669,6 +669,7 @@ def reuse_idle(
             continue
         if isolation_error(repo, path, config, []):
             continue
+        old_branch = record.branch
         branch = unique_branch(repo, base.default_branch)
         reset = run_git(path, "reset", "--hard", base.sha, check=False)
         if reset.returncode != 0:
@@ -681,6 +682,12 @@ def reuse_idle(
             record.state = "needs-cleanup"
             write_record(repo, record)
             continue
+        if old_branch and old_branch != branch:
+            deleted = run_git(
+                repo.checkout, "branch", "-d", old_branch, check=False
+            )
+            if deleted.returncode != 0:
+                app.warn("BRANCH_RETAINED", branch=old_branch)
         record.branch = branch
         record.base_sha = base.sha
         record.owner_session = session_id()

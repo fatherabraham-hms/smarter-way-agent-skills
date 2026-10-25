@@ -350,6 +350,11 @@ def test_reuse_resets_tracked_files_and_keeps_ignored_cache(tmp_path: Path) -> N
     (first_path / ".venv" / "cache").write_text("keep\n", encoding="utf-8")
     second = acquire(repo, env)
     assert second["path"] == first["path"]
+    assert second["branch"] != first["branch"]
+    assert (
+        git(repo, "show-ref", "--verify", f"refs/heads/{first['branch']}", check=False).returncode
+        != 0
+    )
     assert (Path(second["path"]) / ".venv" / "cache").exists()
     assert (Path(second["path"]) / "tracked.txt").read_text() == "base\n"
 
