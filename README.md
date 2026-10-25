@@ -30,7 +30,7 @@ symlinks. Real files and directories are never deleted automatically.
 | `media-disk-space-archiver` | `/media-disk-space-archiver` | Find large local media missing from an external archive, verify, optionally compress for a target screen size, then move approved files |
 | `postgres-best-practices` | `/postgres-best-practices` | Postgres best practices for schema, queries, indexes, connections, RLS, and diagnostics; load before writing or changing anything in a Postgres database |
 | `python-code-review` | `/python-code-review` | Python review focused on architecture, scalability, performance, known bad patterns, and code hygiene |
-| `prep-worktree` | `/prep-worktree` | Always create a fresh isolated worktree from a clean, up-to-date default snapshot |
+| `prep-worktree` | `/prep-worktree` | Create a repo-scoped worktree with an owner lease, non-blocking acquisition, and budgeted reaping |
 | `smart-commit-to-pr` | `/smart-commit-to-pr` | Commit, push, and open or update a PR; cut a fresh feature branch from main/master when the current one is already merged |
 | `smart-implement` | `/smart-implement` | Implement from a spec or tickets (TDD, typecheck, tests), then `/compr-code-review`, then commit |
 | `smart-push-to-prod` | `/smart-push-to-prod` | Commit, push, open PR, squash-merge to main/master, refresh local default branch and any prod checkout mapped by `SMART_PUSH_PROD_PATH` |
@@ -45,26 +45,52 @@ One user-local file is shared by every skill in this repo:
 - `$XDG_CONFIG_HOME/smarter-way/config.json`
 - else `$HOME/.config/smarter-way/config.json`
 
-Copy [`config.example.json`](config.example.json) there. The only key today is
-`plans_path` (architecture-plans root). Do not add per-skill config files.
+Copy [`config.example.json`](config.example.json) there. The shared file holds
+`plans_path` and the per-repo `prep_worktree` settings. Do not add per-skill
+config files.
 
 `smart-push-to-prod` reads `SMART_PUSH_PROD_PATH` from the environment
 (`<develop-toplevel>=<prod-toplevel>`, pairs separated by `;`). Set it in
 `~/.bashrc` above any interactive-only return. Unset means that skill only
 refreshes the current repo.
 
-`prep-worktree` requires `PREP_WORKTREE_PROTECTED_DEV_PATH` to name the
-absolute path of a clean development checkout on the repository's default
-branch. Gitignored runtime artifacts such as logs, caches, and virtualenvs never
-make it dirty. It never lands on or mutates that checkout. Its optional
-`PREP_WORKTREE_MAX` setting defaults to `20`; when the registered worktree count
-reaches that limit, the skill lists clean, unlocked worktrees with at least
-48 hours of last-observed filesystem access and asks for explicit cleanup
-approval before creating another. For example:
+`prep-worktree` resolves the repository from the current checkout and reads its
+entry under `prep_worktree.repos`. The repo key is the canonical Git common
+directory, or the `origin` URL. When no entry exists, defaults apply. The skill
+never blocks on a missing, dirty, or wrong-repository protected checkout.
 
-```bash
-export PREP_WORKTREE_PROTECTED_DEV_PATH=/absolute/path/to/dev-checkout
-export PREP_WORKTREE_MAX=20
+The manager stores per-worktree records under `<git-common-dir>/prep-worktree/`.
+Each worktree has one owner lease, one metadata file, and one lease file. Create
+and acquire do not take a global lock. Reaping takes a short repository lock and
+continues without reaping when the lock is busy.
+
+Default limits are 8 managed worktrees, 20 GiB per repository, and a 24 hour
+idle lease. Reaping archives tracked and untracked work into
+`refs/prep-archive/<id>/<timestamp>` and verifies every file hash before
+removal. Secret-looking ignored files stop reaping with `HUMAN_REVIEW`. Unmerged
+branches are kept.
+
+`PREP_WORKTREE_PROTECTED_DEV_PATH`, `PREP_WORKTREE_MAX`, and
+`PREP_WORKTREE_ROOT` are optional overrides. The protected path override is
+ignored when it belongs to another repository.
+
+Example config:
+
+```json
+{
+  "prep_worktree": {
+    "defaults": {
+      "max_managed_worktrees": 8,
+      "disk_budget_gib": 20,
+      "idle_ttl_hours": 24
+    },
+    "repos": {
+      "/absolute/path/to/dev-checkout": {
+        "protected_paths": ["/absolute/path/to/dev-checkout"]
+      }
+    }
+  }
+}
 ```
 
 ## Install from this repo

@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 Implement the user's spec or tickets.
 
+If `PREP_WORKTREE_ID` is set, run `prep-worktree guard` before the first edit. If the work needs isolation, run `eval "$(prep-worktree acquire)"` first. Release the lease when the work is committed or otherwise saved.
+
 Use /tdd where possible, at pre-agreed seams.
 
 Run typechecking and single test files regularly; run the full suite once at the end.

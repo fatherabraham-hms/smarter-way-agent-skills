@@ -80,7 +80,8 @@ Classify — first match wins:
 
 `gh pr view` with no PR → treat as no GitHub PR. A `prep-worktree/...` branch
 is a session base branch, not a PR head; it must be converted to a
-`feature/...` branch before pushing.
+`feature/...` branch before pushing. The `prep-worktree` manager keeps this
+prefix, so the classification above stays valid.
 
 Record:
 
