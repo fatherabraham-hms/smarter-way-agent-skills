@@ -24,10 +24,17 @@ prep-worktree guard
 
 `acquire` prints shell exports and changes nothing until you `eval` them. `guard` refuses to continue when the current worktree is leased to another owner. Run `guard` before the first edit and after a context switch.
 
+An agent harness starts a fresh shell per command, so exported values do not survive. Read `id` from `acquire --json` or `list --json`, and pass it with `--id` to `guard`, `heartbeat`, and `release`.
+
+```bash
+prep-worktree acquire --json
+prep-worktree guard --id <id>
+```
+
 When the work is committed, pushed, or otherwise saved, release the lease.
 
 ```bash
-prep-worktree release
+prep-worktree release --id <id>
 ```
 
 `release` marks the worktree `idle` only when it is clean and has no commits ahead of its base. A dirty worktree becomes `needs-cleanup`. Nothing is deleted by `release`.
