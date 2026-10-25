@@ -86,7 +86,13 @@ def evaluate(report: Any) -> tuple[str, list[str]]:
     return "ready", []
 
 
-def check(report_path: Path, state_path: Path, *, transition_only: bool = False) -> dict[str, Any] | None:
+def check(report_path: Path, state_path: Path, *, transition_only: bool = False) -> dict[str, Any]:
+    """Evaluate the report and persist state.
+
+    The return value always describes the current state. The
+    ``transition_only`` flag is retained for callers that want to know whether
+    output should be emitted, but it does not hide the state from the caller.
+    """
     try:
         raw = report_path.read_bytes()
         report = json.loads(raw)
@@ -116,8 +122,6 @@ def check(report_path: Path, state_path: Path, *, transition_only: bool = False)
         "evidence_path": str(report_path),
     }
     _write_atomic(state_path, state)
-    if transition_only and not transition:
-        return None
     return {**state, "transition": transition}
 
 
@@ -129,7 +133,7 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="emit JSON instead of a human summary")
     args = parser.parse_args()
     result = check(args.evidence, args.state, transition_only=args.transition_only)
-    if result is None:
+    if args.transition_only and not result["transition"]:
         return 0
     if args.json:
         print(json.dumps(result, sort_keys=True))
