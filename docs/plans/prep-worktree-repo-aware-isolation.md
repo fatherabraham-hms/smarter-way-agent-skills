@@ -89,7 +89,7 @@ Each live lane runs at the PR head via the Task tool. Drive through the control-
 - [ ] Add `resolve_base(repo, config)` in `prep_worktree.py`. Use the configured base ref, then `origin/main`, `origin/master`, `main`, then `master`. Fetch only the base ref. On fetch failure, use the existing ref and print `BASE_STALE`.
 - [ ] Add `acquire(repo, options)` in `prep_worktree.py`. Treat `protected_paths` as exclusion paths only. Do not require them to exist, be clean, be on the default branch, or belong to the current repository.
 - [ ] Add the current checkout as an implicit protected path. Never mutate it. Never land inside it, inside another registered worktree, or inside the common Git directory.
-- [ ] Store metadata in `$COMMON/prep-worktree/worktrees/<admin-id>/meta` as `key=value` lines. The admin id is the basename of the worktree's admin directory under `$COMMON/worktrees/`.
+- [ ] Store metadata in `$COMMON/prep-worktree/worktrees/<admin-id>/` with `meta.json` and `lease.json`. The admin id is the basename of the worktree's admin directory under `$COMMON/worktrees/`.
 - [ ] Use `git status --porcelain=v1 --untracked-files=all` for cleanliness. Never use `--ignored` for a block decision. Carry the PR #18 rule.
 - [ ] Add a thin `scripts/prep-worktree` Bash wrapper with `acquire`, `list`, `status`, `guard`, `heartbeat`, `release`, `reap`, `adopt`, `doctor`, and `archive restore`.
 - [ ] Emit shell exports from `acquire` by default and JSON with `--json`. Print `PREP_WORKTREE_ID`, `PREP_WORKTREE_PATH`, `PREP_WORKTREE_BRANCH`, and `PREP_WORKTREE_BASE_SHA`.
@@ -381,6 +381,8 @@ The prototypes ran under `/tmp/opencode/prep-exp`. The scripts and outputs are l
 
 Unproven. macOS `flock` needs a Python or Perl wrapper because the command is absent. `flock` is not reliable on NFS or SMB. A same-user agent can still write into another worktree if it ignores the guard. The guard prevents accidents, not a hostile process. The archive policy for secret-looking ignored files needs a human decision in PR 3.
 
+Delivery note. The operator invoked `smart-implement` and requested the plan on one branch. The four-PR sequence is collapsed into one branch. The unit suite, the live guard and archive drive, and the cleanup checks ran. The full 40-lane live matrix and the review videos did not run. Treat those as open gates, not passes.
+
 ## Appendix B. Alternatives rejected
 
 - Keep one global protected path and switch the environment per repo. It blocks the second repo in the same session and hides repo identity in shell state. Rejected.
@@ -413,7 +415,7 @@ Unproven. macOS `flock` needs a Python or Perl wrapper because the command is ab
 
 - `skills/prep-worktree/SKILL.md`. The current contract, shell blocks, and cleanup prose.
 - `README.md`. The shared config rule, the current `PREP_WORKTREE_*` claims, and the install section.
-- `tests/test_prep_worktree_skill.py`. The current string assertions to delete.
+- `tests/test_prep_worktree.py`. The behavior suite for the manager.
 - `skills/smart-commit-to-pr/SKILL.md`. The `prep-worktree/` branch-prefix contract.
 - `sync_skills.py` and `tests/test_sync_skills.py`. The primary-worktree install rule from PR #19.
 - PR #18. Ignore gitignored files in pristine checks.

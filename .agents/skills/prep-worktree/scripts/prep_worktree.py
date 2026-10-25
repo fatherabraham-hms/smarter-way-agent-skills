@@ -7,6 +7,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import secrets
 import shlex
 import shutil
@@ -29,10 +30,22 @@ SECRET_NAMES = (
     ".envrc",
     "credentials",
     "secrets",
+    "kubeconfig",
     "id_rsa",
     "id_ed25519",
+    "terraform.tfstate",
 )
-SECRET_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".keystore")
+SECRET_SUFFIXES = (
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    ".jks",
+    ".keystore",
+    ".tfstate",
+    ".secrets.yaml",
+    ".secrets.yml",
+)
 REGENERABLE_PREFIXES = (
     ".venv/",
     "venv/",
@@ -248,8 +261,6 @@ def admin_id_for_path(repo: Repo, path: Path) -> str | None:
             resolved = resolve_path(git_dir)
             if resolved == repo.common_dir:
                 return "main"
-            if resolved.parent == repo.common_dir / "worktrees":
-                return resolved.name
             return resolved.name
     return admin_id_map(repo).get(path)
 
@@ -329,7 +340,12 @@ def config_for_repo(repo: Repo, app: App) -> PrepConfig:
     repos = prep.get("repos", {}) if isinstance(prep, dict) else {}
     entry = {}
     if isinstance(repos, dict):
-        entry = repos.get(str(repo.common_dir)) or repos.get(repo.remote_url or "") or {}
+        entry = (
+            repos.get(str(repo.common_dir))
+            or repos.get(str(repo.checkout))
+            or repos.get(repo.remote_url or "")
+            or {}
+        )
     merged: dict[str, Any] = {}
     if isinstance(defaults, dict):
         merged.update(defaults)
@@ -479,8 +495,21 @@ def state_worktrees_dir(repo: Repo) -> Path:
     return repo.state_dir / "worktrees"
 
 
+def safe_admin_id(admin_id: str) -> str:
+    if (
+        not admin_id
+        or admin_id in {".", ".."}
+        or "/" in admin_id
+        or "\\" in admin_id
+        or ".." in admin_id
+        or not re.fullmatch(r"[A-Za-z0-9._-]+", admin_id)
+    ):
+        raise PrepError(f"invalid worktree id: {admin_id!r}", EXIT_GUARD)
+    return admin_id
+
+
 def record_dir(repo: Repo, admin_id: str) -> Path:
-    return state_worktrees_dir(repo) / admin_id
+    return state_worktrees_dir(repo) / safe_admin_id(admin_id)
 
 
 def read_record(repo: Repo, admin_id: str) -> Record | None:
@@ -545,17 +574,30 @@ def pid_start_time(pid: int) -> str | None:
     try:
         text = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
     except OSError:
+        text = ""
+    if text:
+        try:
+            fields = text.rsplit(")", 1)[1].split()
+            return fields[19]
+        except IndexError:
+            return None
+    process = subprocess.run(
+        ["ps", "-o", "lstart=", "-p", str(pid)],
+        text=True,
+        capture_output=True,
+    )
+    if process.returncode != 0:
         return None
-    try:
-        fields = text.rsplit(")", 1)[1].split()
-        return fields[19]
-    except IndexError:
-        return None
+    return process.stdout.strip() or None
 
 
 def pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
         return True
     except OSError:
         return False
@@ -593,25 +635,39 @@ def session_id() -> str:
     )
 
 
+def root_is_safe(repo: Repo, path: Path, config: PrepConfig) -> bool:
+    if "prod" in path.parts:
+        return False
+    if is_within(path, repo.checkout) or is_within(path, repo.common_dir):
+        return False
+    return not any(is_within(path, resolve_path(item)) for item in config.protected_paths)
+
+
 def default_worktree_root(repo: Repo, config: PrepConfig, app: App) -> Path:
-    if config.worktree_root:
+    if config.worktree_root and root_is_safe(repo, config.worktree_root, config):
         config.worktree_root.mkdir(parents=True, exist_ok=True)
         return config.worktree_root
     parent = repo.main_worktree.parent
     candidate = parent / f".{repo.main_worktree.name}-prep-worktrees"
-    try:
-        candidate.mkdir(parents=True, exist_ok=True)
-        return candidate
-    except OSError:
-        fallback = Path(tempfile.gettempdir()) / "smarter-way" / f"{repo.main_worktree.name}-prep-worktrees"
-        fallback.mkdir(parents=True, exist_ok=True)
-        app.warn("WORKTREE_ROOT_FALLBACK", path=str(fallback))
-        return fallback
+    if root_is_safe(repo, candidate, config):
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            return candidate
+        except OSError:
+            pass
+    fallback = Path(tempfile.gettempdir()) / "smarter-way" / f"{repo.main_worktree.name}-prep-worktrees"
+    if not root_is_safe(repo, fallback, config):
+        raise PrepError(f"no safe worktree root for {repo.checkout}", EXIT_REPO)
+    fallback.mkdir(parents=True, exist_ok=True)
+    app.warn("WORKTREE_ROOT_FALLBACK", path=str(fallback))
+    return fallback
 
 
 def isolation_error(
     repo: Repo, path: Path, config: PrepConfig, worktrees: Sequence[Worktree]
 ) -> str | None:
+    if "prod" in path.parts:
+        return f"landing path is under a production directory: {path}"
     for protected in config.protected_paths:
         protected_path = resolve_path(protected)
         if is_within(path, protected_path):
@@ -661,43 +717,55 @@ def maybe_reap(repo: Repo, config: PrepConfig, app: App) -> None:
 def reuse_idle(
     repo: Repo, config: PrepConfig, base: BaseRef, app: App
 ) -> Record | None:
-    for record in managed_records(repo):
-        if record.state != "idle" or record_active(record):
+    for candidate in managed_records(repo):
+        if candidate.state != "idle" or record_active(candidate):
             continue
-        path = resolve_path(record.path)
-        if not path.exists():
-            continue
-        if isolation_error(repo, path, config, []):
-            continue
-        old_branch = record.branch
-        branch = unique_branch(repo, base.default_branch)
-        reset = run_git(path, "reset", "--hard", base.sha, check=False)
-        if reset.returncode != 0:
-            record.state = "needs-cleanup"
-            write_record(repo, record)
-            continue
-        run_git(path, "clean", "-fd", check=False)
-        switch = run_git(path, "switch", "-C", branch, base.sha, check=False)
-        if switch.returncode != 0:
-            record.state = "needs-cleanup"
-            write_record(repo, record)
-            continue
-        if old_branch and old_branch != branch:
-            deleted = run_git(
-                repo.checkout, "branch", "-d", old_branch, check=False
+        with record_lock(repo, candidate.admin_id, timeout=0.0) as acquired:
+            if not acquired:
+                continue
+            record = read_record(repo, candidate.admin_id)
+            if not record or record.state != "idle" or record_active(record):
+                continue
+            path = resolve_path(record.path)
+            if not path.exists():
+                continue
+            if isolation_error(repo, path, config, []):
+                continue
+            status = git_output(
+                path, "status", "--porcelain=v1", "--untracked-files=all"
             )
-            if deleted.returncode != 0:
-                app.warn("BRANCH_RETAINED", branch=old_branch)
-        record.branch = branch
-        record.base_sha = base.sha
-        record.owner_session = session_id()
-        record.owner_pid = os.getpid()
-        record.pid_start = pid_start_time(os.getpid())
-        record.created_at = time.time()
-        record.last_seen = record.created_at
-        record.state = "leased"
-        write_record(repo, record)
-        return record
+            if status:
+                record.state = "needs-cleanup"
+                write_record(repo, record)
+                continue
+            old_branch = record.branch
+            branch = unique_branch(repo, base.default_branch)
+            reset = run_git(path, "reset", "--hard", base.sha, check=False)
+            if reset.returncode != 0:
+                record.state = "needs-cleanup"
+                write_record(repo, record)
+                continue
+            switch = run_git(path, "switch", "-C", branch, base.sha, check=False)
+            if switch.returncode != 0:
+                record.state = "needs-cleanup"
+                write_record(repo, record)
+                continue
+            if old_branch and old_branch != branch:
+                deleted = run_git(
+                    repo.checkout, "branch", "-d", old_branch, check=False
+                )
+                if deleted.returncode != 0:
+                    app.warn("BRANCH_RETAINED", branch=old_branch)
+            record.branch = branch
+            record.base_sha = base.sha
+            record.owner_session = session_id()
+            record.owner_pid = os.getpid()
+            record.pid_start = pid_start_time(os.getpid())
+            record.created_at = time.time()
+            record.last_seen = record.created_at
+            record.state = "leased"
+            write_record(repo, record)
+            return record
     return None
 
 
@@ -754,6 +822,7 @@ def command_acquire(args: argparse.Namespace, app: App) -> int:
         )
         write_record(repo, record)
     owner = record.owner_session
+    invalidate_size_cache(repo)
     count = len(managed_records(repo))
     if count > config.max_managed_worktrees:
         app.warn("OVER_BUDGET", managed=count, max=config.max_managed_worktrees)
@@ -798,12 +867,15 @@ def assert_owner(record: Record) -> None:
 
 
 def command_guard(args: argparse.Namespace, app: App) -> int:
-    repo = resolve_repo(Path.cwd())
+    try:
+        repo = resolve_repo(Path.cwd())
+    except PrepError as exc:
+        raise PrepError(f"NO_LEASE {exc}", EXIT_GUARD) from exc
     record = require_record(repo, args.id or os.environ.get("PREP_WORKTREE_ID"))
     current = repo.checkout
     if resolve_path(record.path) != current:
         raise PrepError(
-            f"foreign worktree: lease={record.path} current={current} owner={record.owner_session}",
+            f"FOREIGN_WORKTREE lease={record.path} current={current} owner={record.owner_session}",
             EXIT_GUARD,
         )
     assert_owner(record)
@@ -905,12 +977,54 @@ def du_bytes(path: Path) -> int:
         return 0
 
 
-def managed_bytes(repo: Repo) -> int:
+def size_cache_path(repo: Repo) -> Path:
+    return repo.state_dir / "size.json"
+
+
+def managed_bytes(repo: Repo, max_age: float = 600.0) -> int:
+    cache_path = size_cache_path(repo)
+    try:
+        cache = json.loads(cache_path.read_text(encoding="utf-8"))
+        if time.time() - float(cache["measured_at"]) < max_age:
+            return int(cache["bytes"])
+    except (FileNotFoundError, OSError, ValueError, KeyError, json.JSONDecodeError):
+        pass
     total = 0
     for record in managed_records(repo):
         if record.state != "archived":
             total += du_bytes(resolve_path(record.path))
+    with contextlib.suppress(OSError):
+        write_json_atomic(cache_path, {"bytes": total, "measured_at": time.time()})
     return total
+
+
+def invalidate_size_cache(repo: Repo) -> None:
+    with contextlib.suppress(OSError):
+        size_cache_path(repo).unlink()
+
+
+@contextlib.contextmanager
+def record_lock(repo: Repo, admin_id: str, timeout: float = 0.0) -> Iterator[bool]:
+    lock_path = record_dir(repo, admin_id) / "claim.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    acquired = False
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.02)
+        yield acquired
+    finally:
+        if acquired:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 @contextlib.contextmanager
@@ -971,7 +1085,16 @@ def create_archive(record: Record, include_ignored: bool) -> str:
             if not entry:
                 continue
             metadata, relative = entry.split("\t", 1)
-            archive_hashes[relative] = metadata.split()[2]
+            mode, kind, blob = metadata.split()
+            if kind == "blob":
+                archive_hashes[relative] = blob
+        stage_raw = git_output(path, "ls-files", "-z", "--stage")
+        stage_modes: dict[str, str] = {}
+        for entry in stage_raw.split("\0"):
+            if not entry:
+                continue
+            metadata, relative = entry.split("\t", 1)
+            stage_modes[relative] = metadata.split()[0]
         worktree_raw = git_output(
             path,
             "ls-files",
@@ -988,6 +1111,8 @@ def create_archive(record: Record, include_ignored: bool) -> str:
             worktree_paths.extend(item for item in ignored_raw.split("\0") if item)
         worktree_hashes: dict[str, str] = {}
         for relative in sorted(set(worktree_paths)):
+            if stage_modes.get(relative) == "160000":
+                continue
             candidate = path / relative
             if not candidate.exists() and not candidate.is_symlink():
                 continue
@@ -1081,14 +1206,15 @@ def command_reap(args: argparse.Namespace, app: App, quiet: bool = False) -> int
             if not path.exists():
                 action["action"] = "MISSING"
                 if apply_changes:
-                    removed = run_git(
-                        repo.checkout, "worktree", "remove", str(path), check=False
-                    )
-                    if removed.returncode == 0:
+                    worktree = worktrees.get(path)
+                    if worktree and remove_prunable_registration(repo, worktree):
                         record.state = "archived"
                         write_record(repo, record)
-                    else:
+                    elif worktree and worktree.prunable:
                         action["action"] = "REMOVE_REFUSED"
+                    else:
+                        record.state = "archived"
+                        write_record(repo, record)
                 actions.append(action)
                 continue
             worktree = worktrees.get(path)
@@ -1131,9 +1257,13 @@ def command_reap(args: argparse.Namespace, app: App, quiet: bool = False) -> int
             )
             if needs_archive:
                 action["action"] = "ARCHIVE_REMOVE"
+                action["archive_status"] = (
+                    "ARCHIVE_VERIFIED" if apply_changes else "ARCHIVE_PENDING"
+                )
                 if apply_changes:
                     ref = create_archive(record, include_ignored=include_ignored)
                     action["archive_ref"] = ref
+                    action["archive_status"] = "ARCHIVE_VERIFIED"
                     record.archive_ref = ref
                     run_git(path, "reset", "--hard", "HEAD", check=False)
                     run_git(path, "clean", "-fd", check=False)
@@ -1141,10 +1271,13 @@ def command_reap(args: argparse.Namespace, app: App, quiet: bool = False) -> int
                         action["action"] = "REMOVE_REFUSED"
             else:
                 action["action"] = "REMOVE"
+                action["archive_status"] = "NO_ARCHIVE_NEEDED"
                 if apply_changes:
                     if not remove_worktree(repo, record, app):
                         action["action"] = "REMOVE_REFUSED"
             actions.append(action)
+    if apply_changes:
+        invalidate_size_cache(repo)
     if quiet:
         return EXIT_OK
     if app.json_mode:
@@ -1154,6 +1287,7 @@ def command_reap(args: argparse.Namespace, app: App, quiet: bool = False) -> int
             print(
                 f"{action['action']} id={action['id']} path={action['path']} "
                 f"state={action.get('state')} branch={action.get('branch')} "
+                f"archive_status={action.get('archive_status', '')} "
                 f"ignored_files={action.get('ignored_files', 0)} "
                 f"ignored_bytes={action.get('ignored_bytes', 0)}"
             )
@@ -1202,6 +1336,15 @@ def command_list(args: argparse.Namespace, app: App) -> int:
     return EXIT_OK
 
 
+def looks_like_prep_path(repo: Repo, path: Path) -> bool:
+    name = path.name
+    return (
+        name.startswith(f".{repo.main_worktree.name}-prep")
+        or "-prep-" in name
+        or name.endswith("-prep")
+    )
+
+
 def remove_prunable_registration(repo: Repo, worktree: Worktree) -> bool:
     if not worktree.prunable or not worktree.admin_id or worktree.admin_id == "main":
         return False
@@ -1218,10 +1361,16 @@ def command_adopt(args: argparse.Namespace, app: App) -> int:
     base = resolve_base(repo, config, app, fetch=False)
     apply_changes = bool(args.apply)
     existing = {resolve_path(record.path) for record in managed_records(repo)}
+    parsed = parse_worktrees(repo)
+    by_admin = {
+        worktree.admin_id: worktree
+        for worktree in parsed
+        if worktree.admin_id
+    }
     managed: list[dict[str, Any]] = []
     user_owned: list[str] = []
     prunable: list[dict[str, Any]] = []
-    for worktree in parse_worktrees(repo):
+    for worktree in parsed:
         path = resolve_path(worktree.path)
         if path == repo.checkout or path in existing:
             continue
@@ -1231,7 +1380,7 @@ def command_adopt(args: argparse.Namespace, app: App) -> int:
             )
             continue
         branch = worktree.branch or ""
-        if branch.startswith("prep-worktree/") and "prep" in path.name:
+        if branch.startswith("prep-worktree/") and looks_like_prep_path(repo, path):
             managed.append(
                 {
                     "path": str(path),
@@ -1262,14 +1411,7 @@ def command_adopt(args: argparse.Namespace, app: App) -> int:
             user_owned.append(str(path))
     if apply_changes:
         for item in prunable:
-            worktree = next(
-                (
-                    candidate
-                    for candidate in parse_worktrees(repo)
-                    if candidate.admin_id == item["admin_id"]
-                ),
-                None,
-            )
+            worktree = by_admin.get(item["admin_id"])
             if worktree:
                 remove_prunable_registration(repo, worktree)
     data = {
@@ -1344,11 +1486,18 @@ def command_restore(args: argparse.Namespace, app: App) -> int:
     repo = resolve_repo(args.repo)
     config = config_for_repo(repo, app)
     base = resolve_base(repo, config, app, fetch=False)
-    root = default_worktree_root(repo, config, app)
     path = resolve_path(args.path)
     if path.exists():
         raise PrepError(f"restore path already exists: {path}")
-    branch = f"prep-worktree/restore-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
+    worktrees = parse_worktrees(repo)
+    error = isolation_error(repo, path, config, worktrees)
+    if error:
+        raise PrepError(error, EXIT_REPO)
+    if run_git(
+        repo.checkout, "check-ref-format", args.ref, check=False
+    ).returncode != 0:
+        raise PrepError(f"invalid archive ref: {args.ref}", EXIT_ERROR)
+    branch = unique_branch(repo, base.default_branch)
     process = run_git(
         repo.checkout,
         "worktree",
@@ -1415,6 +1564,7 @@ def build_parser() -> argparse.ArgumentParser:
     reap = add_common("reap")
     reap.add_argument("--repo", default=None)
     reap.add_argument("--apply", action="store_true")
+    reap.add_argument("--dry-run", action="store_true")
     reap.add_argument("--include-ignored", action="store_true")
     reap.add_argument("--lock-timeout", type=float, default=5.0)
     reap.set_defaults(func=command_reap)
@@ -1430,6 +1580,7 @@ def build_parser() -> argparse.ArgumentParser:
     adopt = add_common("adopt")
     adopt.add_argument("--repo", default=None)
     adopt.add_argument("--apply", action="store_true")
+    adopt.add_argument("--dry-run", action="store_true")
     adopt.set_defaults(func=command_adopt)
 
     doctor = add_common("doctor")
@@ -1442,6 +1593,7 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--repo", default=None)
     restore.add_argument("--ref", required=True)
     restore.add_argument("--path", required=True)
+    restore.add_argument("--json", action="store_true")
     restore.set_defaults(func=command_restore)
 
     return parser

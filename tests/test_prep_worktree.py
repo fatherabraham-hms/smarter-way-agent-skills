@@ -225,7 +225,7 @@ def test_guard_rejects_foreign_worktree(tmp_path: Path) -> None:
         env=env,
     )
     assert result.returncode == 2
-    assert "foreign worktree" in result.stderr
+    assert "FOREIGN_WORKTREE" in result.stderr
 
 
 def test_guard_rejects_missing_lease(tmp_path: Path) -> None:
@@ -397,10 +397,10 @@ def test_adopt_dry_run_changes_nothing(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     legacy = make_legacy_worktree(tmp_path, repo)
     before = git_out(repo, "worktree", "list", "--porcelain")
-    result = run_cli(repo, "adopt", "--json", env=base_env(tmp_path))
+    result = run_cli(repo, "adopt", "--dry-run", "--json", env=base_env(tmp_path))
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["managed_legacy"][0]["path"] == str(legacy)
-    assert record_path(repo, "legacy").exists() is False
+    assert not list((state_dir(repo) / "worktrees").glob("*/meta.json"))
     assert git_out(repo, "worktree", "list", "--porcelain") == before
 
 
@@ -452,3 +452,135 @@ def test_doctor_reports_clean_fixture(tmp_path: Path) -> None:
     result = run_cli(repo, "doctor", "--json", env=env)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["ok"] is True
+
+
+def test_reuse_rejects_dirty_worktree(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    env = base_env(tmp_path)
+    first = acquire(repo, env)
+    released = run_cli(
+        Path(first["path"]), "release", "--id", first["id"], env=env
+    )
+    assert released.returncode == 0, released.stderr
+    (Path(first["path"]) / "scratch-notes.txt").write_text("keep\n", encoding="utf-8")
+    second = acquire(repo, env)
+    assert second["path"] != first["path"]
+    assert (Path(first["path"]) / "scratch-notes.txt").exists()
+    lease = json.loads((record_path(repo, first["id"]) / "lease.json").read_text())
+    assert lease["state"] == "needs-cleanup"
+
+
+def test_reuse_concurrent_claims_are_unique(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    env = base_env(tmp_path)
+    first = acquire(repo, env)
+    released = run_cli(
+        Path(first["path"]), "release", "--id", first["id"], env=env
+    )
+    assert released.returncode == 0, released.stderr
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(
+            pool.map(lambda _: run_cli(repo, "acquire", "--json", env=env), range(4))
+        )
+    assert all(result.returncode == 0 for result in results), [
+        result.stderr for result in results if result.returncode != 0
+    ]
+    paths = {json.loads(result.stdout)["path"] for result in results}
+    assert len(paths) == 4
+
+
+def test_dry_run_flags_are_accepted(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    env = base_env(tmp_path)
+    record = acquire(repo, env)
+    expire(repo, record["id"])
+    reap = run_cli(repo, "reap", "--dry-run", "--json", env=env)
+    assert reap.returncode == 0, reap.stderr
+    adopt = run_cli(repo, "adopt", "--dry-run", "--json", env=env)
+    assert adopt.returncode == 0, adopt.stderr
+
+
+def test_restore_rejects_unsafe_path_and_supports_json(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    env = base_env(tmp_path)
+    record = acquire(repo, env)
+    path = Path(record["path"])
+    (path / "tracked.txt").write_text("changed\n", encoding="utf-8")
+    expire(repo, record["id"])
+    reap = run_cli(repo, "reap", "--apply", "--json", env=env)
+    assert reap.returncode == 0, reap.stderr
+    ref = json.loads(reap.stdout)["actions"][0]["archive_ref"]
+    unsafe = run_cli(
+        repo,
+        "archive",
+        "restore",
+        "--ref",
+        ref,
+        "--path",
+        str(repo / "nested"),
+        "--json",
+        env=env,
+    )
+    assert unsafe.returncode != 0
+    assert not (repo / "nested").exists()
+    restored = run_cli(
+        repo,
+        "archive",
+        "restore",
+        "--ref",
+        ref,
+        "--path",
+        str(tmp_path / "restored"),
+        "--json",
+        env=env,
+    )
+    assert restored.returncode == 0, restored.stderr
+    assert Path(json.loads(restored.stdout)["path"]).exists()
+
+
+def test_reap_missing_path_reconciles_prunable(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    env = base_env(tmp_path)
+    record = acquire(repo, env)
+    shutil.rmtree(record["path"])
+    expire(repo, record["id"])
+    result = run_cli(repo, "reap", "--apply", "--json", env=env)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["actions"][0]["action"] == "MISSING"
+    listed = git_out(repo, "worktree", "list", "--porcelain")
+    assert not any(line.startswith("prunable") for line in listed.splitlines())
+    lease = json.loads((record_path(repo, record["id"]) / "lease.json").read_text())
+    assert lease["state"] == "archived"
+
+
+def test_guard_outside_repo_exits_guard_code(tmp_path: Path) -> None:
+    result = run_cli(tmp_path, "guard", "--id", "missing", env=base_env(tmp_path))
+    assert result.returncode == 2
+    assert "NO_LEASE" in result.stderr
+
+
+def test_reap_outputs_archive_status(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    env = base_env(tmp_path)
+    dirty = acquire(repo, env)
+    (Path(dirty["path"]) / "tracked.txt").write_text("changed\n", encoding="utf-8")
+    expire(repo, dirty["id"])
+    result = run_cli(repo, "reap", "--apply", "--json", env=env)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["actions"][0]["archive_status"] == "ARCHIVE_VERIFIED"
+    clean = acquire(repo, env, "--no-reuse")
+    expire(repo, clean["id"])
+    dry = run_cli(repo, "reap", "--dry-run", "--json", env=env)
+    assert dry.returncode == 0, dry.stderr
+    actions = json.loads(dry.stdout)["actions"]
+    clean_action = next(action for action in actions if action["id"] == clean["id"])
+    assert clean_action["archive_status"] == "NO_ARCHIVE_NEEDED"
+
+
+def test_safe_id_rejects_traversal(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    env = base_env(tmp_path)
+    record = acquire(repo, env)
+    result = run_cli(Path(record["path"]), "guard", "--id", "../../x", env=env)
+    assert result.returncode == 2
+    assert "invalid worktree id" in result.stderr

@@ -55,9 +55,11 @@ config files.
 refreshes the current repo.
 
 `prep-worktree` resolves the repository from the current checkout and reads its
-entry under `prep_worktree.repos`. The repo key is the canonical Git common
-directory, or the `origin` URL. When no entry exists, defaults apply. The skill
-never blocks on a missing, dirty, or wrong-repository protected checkout.
+entry under `prep_worktree.repos`. The repo key can be the canonical Git common
+directory, the checkout path, or the `origin` URL. When no entry exists,
+defaults apply. The skill never blocks on a missing, dirty, or
+wrong-repository protected checkout. A checkout or landing path under a `prod`
+path component is refused.
 
 The manager stores per-worktree records under `<git-common-dir>/prep-worktree/`.
 Each worktree has one owner lease, one metadata file, and one lease file. Create
@@ -93,6 +95,10 @@ Example config:
 }
 ```
 
+To roll back the skill, restore the prior `.agents/skills/prep-worktree`
+directory and rerun `python3 sync_skills.py`. The manager records live under
+`<git-common-dir>/prep-worktree/` and do not affect a rollback.
+
 ## Install from this repo
 
 After cloning on any machine, from the repo root:
@@ -115,7 +121,8 @@ rerun the same command to refresh links.
 
 Install mode resolves the repository's primary development checkout. Running it
 from a linked worktree still links the development directory, never the
-ephemeral worktree.
+ephemeral worktree. `prep-worktree` uses a different rule on purpose. It treats
+the current checkout as protected and never needs a single canonical checkout.
 
 Preview first with `python3 sync_skills.py --dry-run`.
 

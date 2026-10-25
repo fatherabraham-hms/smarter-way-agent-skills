@@ -78,7 +78,9 @@ The manager reads the shared config at `$XDG_CONFIG_HOME/smarter-way/config.json
 
 `protected_paths` are exclusion paths. The manager never lands inside one. It does not require a protected path to exist, to be clean, to be on the default branch, or to belong to the current repository. A bad protected path becomes a warning.
 
-The current checkout is always an implicit protected path. The manager never mutates it.
+The current checkout is always an implicit protected path. The manager never mutates it. A checkout or landing path with a `prod` path component is refused.
+
+The repo key can be the canonical Git common directory, the checkout path, or the `origin` URL.
 
 `PREP_WORKTREE_PROTECTED_DEV_PATH` and `PREP_WORKTREE_MAX` are optional legacy overrides. A protected path that belongs to another repository is ignored with `LEGACY_PROTECTED_IGNORED`. `PREP_WORKTREE_ROOT` overrides `worktree_root`.
 
