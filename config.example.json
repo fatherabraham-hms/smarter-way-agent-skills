@@ -1,3 +1,21 @@
 {
-  "plans_path": "/absolute/path/to/arch-blueprints"
+  "plans_path": "/absolute/path/to/arch-blueprints",
+  "prep_worktree": {
+    "defaults": {
+      "max_managed_worktrees": 8,
+      "disk_budget_gib": 20,
+      "idle_ttl_hours": 24,
+      "worktree_root": null,
+      "archive_ignored": false,
+      "protected_paths": []
+    },
+    "repos": {
+      "/absolute/path/to/dev-checkout": {
+        "protected_paths": [
+          "/absolute/path/to/dev-checkout"
+        ],
+        "max_managed_worktrees": 8
+      }
+    }
+  }
 }

@@ -1,323 +1,134 @@
 ---
 name: prep-worktree
 description: >-
-  Always create a fresh isolated worktree from a clean, up-to-date default
-  branch snapshot. Never land on the current or protected dev checkout.
+  Create a fresh isolated worktree from the current repo's default branch.
+  Never land on the current or protected checkout.
 disable-model-invocation: true
 metadata:
   requires:
-    bins: ["bash", "git"]
+    bins: ["bash", "git", "python3"]
 ---
 
 # prep-worktree
 
-This skill always creates a fresh isolated prep worktree. It must never land on
-the current checkout, even when that checkout is clean and on the default
-branch. It must also never land on or mutate the user's protected development
-checkout.
+Create one isolated worktree for one agent. The manager keys state by repository, not by a global environment variable. It never blocks on a dirty, missing, or wrong-repository protected checkout. It leases each worktree to one owner and reclaims idle worktrees under a disk budget.
 
-The user must configure their protected development checkout with an absolute
-path before invoking this skill:
+## Start here
+
+Run this from the repository you want to work in.
 
 ```bash
-export PREP_WORKTREE_PROTECTED_DEV_PATH=/absolute/path/to/pristine/dev/checkout
+eval "$(prep-worktree acquire)"
+prep-worktree guard
 ```
 
-The value is user configuration and must not be hardcoded in this skill. The
-protected checkout must be a clean checkout of this repository on the resolved
-default branch. Validate that requirement, but never pull, merge, rebase,
-stash, checkout, reset, clean, or otherwise mutate it. The current checkout is
-also report-only and must not be mutated.
+`acquire` prints shell exports and changes nothing until you `eval` them. `guard` refuses to continue when the current worktree is leased to another owner. Run `guard` before the first edit and after a context switch.
 
-The shell examples require Bash; run them under Bash rather than `/bin/sh`.
-
-Existing worktrees and their in-progress operations are session-owned. Do not
-reclaim a worktree by age or automatically delete anything. The only exception
-is the explicit, user-confirmed cleanup flow below, which is conservative and
-never force-removes a worktree.
-
-## Workflow
-
-```text
-prep-worktree:
-- [ ] 1. Validate current/protected checkouts and resolve the default branch
-- [ ] 2. Refresh the default ref without changing a checkout
-- [ ] 3. Enforce the configurable worktree limit and offer cleanup if needed
-- [ ] 4. Create a unique isolated worktree and branch
-- [ ] 5. Verify and report the handoff
-```
-
-### 1. Validate current, protected, and default
-
-Run from the user's current directory:
+When the work is committed, pushed, or otherwise saved, release the lease.
 
 ```bash
-CURRENT=$(git rev-parse --show-toplevel) || { echo "STOP: not a git checkout" >&2; exit 1; }
-CURRENT=$(cd "$CURRENT" && pwd -P)
-case "/$CURRENT/" in */prod/*) echo "STOP: production/runtime checkout" >&2; exit 1;; esac
-STATUS=$(git status --porcelain=v1 --untracked-files=all)
-CURRENT_BRANCH=$(git branch --show-current)
-DIRTY_FILE_COUNT=$(printf '%s\n' "$STATUS" | awk 'NF {n++} END {print n+0}')
+prep-worktree release
+```
 
-PROTECTED_DEV_PATH=${PREP_WORKTREE_PROTECTED_DEV_PATH:-}
-if [ -z "$PROTECTED_DEV_PATH" ] || [ "${PROTECTED_DEV_PATH#/}" = "$PROTECTED_DEV_PATH" ]; then
-  echo "STOP: set PREP_WORKTREE_PROTECTED_DEV_PATH to an absolute path" >&2
-  exit 1
-fi
-PROTECTED_DEV_PATH=$(cd "$PROTECTED_DEV_PATH" 2>/dev/null && pwd -P) || {
-  echo "STOP: protected dev checkout does not exist" >&2; exit 1;
-}
-case "/$PROTECTED_DEV_PATH/" in
-  */prod/*) echo "STOP: protected dev checkout is under a production/runtime path" >&2; exit 1;;
-esac
+`release` marks the worktree `idle` only when it is clean and has no commits ahead of its base. A dirty worktree becomes `needs-cleanup`. Nothing is deleted by `release`.
 
-if git rev-parse --verify --quiet refs/remotes/origin/main >/dev/null; then
-  DEFAULT=main
-elif git rev-parse --verify --quiet refs/remotes/origin/master >/dev/null; then
-  DEFAULT=master
-elif git show-ref --verify --quiet refs/heads/main; then
-  DEFAULT=main
-elif git show-ref --verify --quiet refs/heads/master; then
-  DEFAULT=master
-else
-  echo "STOP: no origin/main, origin/master, main, or master ref" >&2; exit 1
-fi
+## Commands
 
-PROTECTED_ROOT=$(git -C "$PROTECTED_DEV_PATH" rev-parse --show-toplevel 2>/dev/null) || {
-  echo "STOP: protected path is not a git checkout" >&2; exit 1;
-}
-PROTECTED_ROOT=$(cd "$PROTECTED_ROOT" && pwd -P)
-test "$PROTECTED_ROOT" = "$PROTECTED_DEV_PATH" || {
-  echo "STOP: protected path must be the checkout root, not a subdirectory" >&2; exit 1;
-}
-resolve_common_dir() {
-  local checkout="$1" common_dir
-  common_dir=$(git -C "$checkout" rev-parse --git-common-dir) || return 1
-  case "$common_dir" in
-    /*) cd "$common_dir" && pwd -P ;;
-    *) cd "$checkout/$common_dir" && pwd -P ;;
-  esac
-}
-CURRENT_COMMON_DIR=$(resolve_common_dir "$CURRENT") || exit 1
-PROTECTED_COMMON_DIR=$(resolve_common_dir "$PROTECTED_DEV_PATH") || exit 1
-test "$CURRENT_COMMON_DIR" = "$PROTECTED_COMMON_DIR" || {
-  echo "STOP: protected dev checkout belongs to a different repository" >&2; exit 1;
-}
-PROTECTED_BRANCH=$(git -C "$PROTECTED_DEV_PATH" branch --show-current)
-test "$PROTECTED_BRANCH" = "$DEFAULT" || {
-  echo "STOP: protected dev checkout must be on $DEFAULT, found ${PROTECTED_BRANCH:-detached HEAD}" >&2; exit 1;
-}
-PROTECTED_STATUS=$(git -C "$PROTECTED_DEV_PATH" status --porcelain=v1 --untracked-files=all) || {
-  echo "STOP: could not inspect protected dev checkout" >&2; exit 1;
-}
-test -z "$PROTECTED_STATUS" || {
-  echo "STOP: protected dev checkout has tracked changes or untracked files" >&2; exit 1;
-}
-for operation_marker in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG rebase-apply rebase-merge sequencer; do
-  operation_path=$(git -C "$PROTECTED_DEV_PATH" rev-parse --git-path "$operation_marker") || exit 1
-  test ! -e "$operation_path" || {
-    echo "STOP: protected dev checkout has an in-progress Git operation" >&2; exit 1;
+| Command | Use |
+| --- | --- |
+| `prep-worktree acquire` | Create or reuse a worktree and lease it to the current owner |
+| `prep-worktree guard` | Fail when the current worktree belongs to another owner |
+| `prep-worktree heartbeat` | Refresh the lease timestamp |
+| `prep-worktree release` | Mark the lease idle or needs-cleanup |
+| `prep-worktree list` | List managed worktrees |
+| `prep-worktree status` | Show repo, base, protected paths, and managed counts |
+| `prep-worktree reap --dry-run` | Report reclaim candidates and change nothing |
+| `prep-worktree reap --apply` | Archive, verify, remove safe candidates, and keep unmerged branches |
+| `prep-worktree adopt --dry-run` | Report legacy and user-owned worktrees |
+| `prep-worktree adopt --apply` | Add records for legacy prep worktrees only |
+| `prep-worktree doctor` | Check records, paths, branches, and writable roots |
+| `prep-worktree archive restore --ref <ref> --path <path>` | Restore an archive into a new managed worktree |
+
+Every command accepts `--json`. Use it in scripts.
+
+## Configuration
+
+The manager reads the shared config at `$XDG_CONFIG_HOME/smarter-way/config.json`, then `$HOME/.config/smarter-way/config.json`. When the file or a repo entry is absent, defaults apply. The manager never stops because configuration is missing.
+
+```json
+{
+  "prep_worktree": {
+    "defaults": {
+      "max_managed_worktrees": 8,
+      "disk_budget_gib": 20,
+      "idle_ttl_hours": 24,
+      "worktree_root": null,
+      "archive_ignored": false,
+      "protected_paths": []
+    },
+    "repos": {
+      "/absolute/path/to/dev-checkout": {
+        "protected_paths": ["/absolute/path/to/dev-checkout"],
+        "max_managed_worktrees": 8
+      }
+    }
   }
-done
+}
 ```
 
-The current branch and dirty set are report-only. A divergent local branch does
-not block prep and never justifies changing the current checkout.
+`protected_paths` are exclusion paths. The manager never lands inside one. It does not require a protected path to exist, to be clean, to be on the default branch, or to belong to the current repository. A bad protected path becomes a warning.
 
-Pristine checks deliberately ignore gitignored files. Generated output such as
-`logs/`, `__pycache__/`, `.venv/`, build directories, and editor caches must
-never stop prep-worktree: they are local, regenerable, and invisible to Git.
-Only tracked modifications and untracked non-ignored files make a checkout
-dirty. The protected path may equal the current checkout; when it does, the same
-ignored-artifact exemption applies to that single checkout.
+The current checkout is always an implicit protected path. The manager never mutates it. A checkout or landing path with a `prod` path component is refused.
 
-### 2. Refresh the default ref without changing a checkout
+The repo key can be the canonical Git common directory, the checkout path, or the `origin` URL.
 
-Do not run `git worktree prune`. If `origin` exists, fetch exactly the selected
-default branch and use its refreshed remote-tracking ref:
+`PREP_WORKTREE_PROTECTED_DEV_PATH` and `PREP_WORKTREE_MAX` are optional legacy overrides. A protected path that belongs to another repository is ignored with `LEGACY_PROTECTED_IGNORED`. `PREP_WORKTREE_ROOT` overrides `worktree_root`.
+
+## Safety rules
+
+The manager never force-removes a worktree. It removes a worktree only when all of these are true.
+
+- The worktree has a managed record.
+- No live lease or process working directory points at it.
+- Its branch is not locked.
+- Its tracked and untracked work is clean or archived and verified.
+- Its ignored files are regenerable, or the operator passed `--include-ignored`.
+
+Secret-looking ignored or untracked files stop reaping with `HUMAN_REVIEW`. This includes `.env`, `*.pem`, `*.key`, `credentials*`, `secrets.*`, and SSH keys.
+
+An archive is a Git ref under `refs/prep-archive/<id>/<timestamp>`. The manager reads the archive back and compares every file hash before removal. A failed verification leaves the worktree in place.
+
+Unmerged branches are kept after worktree removal. Merged branches with no unique commits are deleted.
+
+## Reclaim policy
+
+`acquire` calls reaping when the managed count reaches `max_managed_worktrees` or the disk budget is reached. Reaping uses a repository-scoped `flock` with a short timeout. If the lock is busy, acquire prints `REAP_SKIPPED` and creates the worktree anyway. Acquisition never waits on the human.
+
+The default worktree root is a sibling directory of the primary checkout, named `.<repo>-prep-worktrees`. When that parent is not writable, the manager uses `$TMPDIR/smarter-way/<repo>-prep-worktrees`.
+
+## Adopt existing worktrees
+
+Run the dry run first.
 
 ```bash
-if git remote get-url origin >/dev/null 2>&1; then
-  git fetch --no-tags origin "$DEFAULT" || {
-    echo "STOP: could not refresh origin/$DEFAULT; no worktree created" >&2; exit 1;
-  }
-  BASE="refs/remotes/origin/$DEFAULT"
-else
-  BASE="$DEFAULT"
-fi
-BASE_SHA=$(git rev-parse "$BASE") || { echo "STOP: landing base disappeared" >&2; exit 1; }
+prep-worktree adopt --dry-run
+prep-worktree reap --dry-run
 ```
 
-Fetch may update shared repository refs, but it must not change any checkout's
-files, branch, or working tree. On a Git metadata lock failure, retry once at
-most; never poll or remove a lock file.
+Adoption records a worktree only when its branch starts with `prep-worktree/` and its path looks like a prep worktree. Every other worktree is user-owned and never touched. Prunable registrations are removed by exact admin id, never with a blanket `git worktree prune`.
 
-### 3. Enforce the worktree limit and offer cleanup
+## Verification
 
-`PREP_WORKTREE_MAX` is configurable and defaults to `20`. Count every
-registered worktree, including the protected and current checkouts. Check at
-`>=` so creating the new worktree cannot exceed the limit:
+Run the behavior tests with a Python environment that has pytest.
 
 ```bash
-WORKTREE_MAX=${PREP_WORKTREE_MAX:-20}
-case "$WORKTREE_MAX" in ''|*[!0-9]*|0) echo "STOP: PREP_WORKTREE_MAX must be a positive integer" >&2; exit 1;; esac
-LOCK_DIR="$CURRENT_COMMON_DIR/prep-worktree.lock"
-LOCK_ACQUIRED=0
-cleanup_lock() {
-  [ "$LOCK_ACQUIRED" = 1 ] || return 0
-  if [ -f "$LOCK_DIR/pid" ] && [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" != "$$" ]; then
-    return 0
-  fi
-  rm -f "$LOCK_DIR/pid"
-  rmdir "$LOCK_DIR" 2>/dev/null || true
-}
-trap cleanup_lock EXIT
-mkdir "$LOCK_DIR" 2>/dev/null || {
-  echo "STOP: another prep-worktree session holds the repository lock" >&2; exit 1;
-}
-LOCK_ACQUIRED=1
-printf '%s\n' "$$" > "$LOCK_DIR/pid" || {
-  echo "STOP: could not record the repository lock owner" >&2; exit 1;
-}
-WORKTREE_LIST=$(git worktree list --porcelain) || {
-  echo "STOP: could not enumerate registered worktrees" >&2; exit 1;
-}
-WORKTREE_COUNT=$(printf '%s\n' "$WORKTREE_LIST" | awk '$1 == "worktree" {n++} END {print n+0}')
+python3 -m pytest tests/test_prep_worktree.py
 ```
 
-Before counting, cleanup, or creating, acquire a repository-scoped coordination
-lock. Use an atomic `mkdir` under `$CURRENT_COMMON_DIR` and release it with an
-`EXIT` trap. If the lock already exists, stop and ask the user to retry after
-the other prep session finishes. Record the owner PID only after `mkdir`
-succeeds. Never automatically remove or reclaim a lock: if the user believes it
-is stale, verify the recorded PID is no longer alive and obtain explicit
-confirmation before removing only that lock directory. If the PID is missing or
-invalid, require manual inspection and confirmation; never infer that the lock
-is stale. Hold the lock
-through user confirmation, candidate revalidation, cleanup, recount, and
-`git worktree add`. This prevents concurrent invocations of this skill from
-exceeding the limit or deleting a path approved by another session.
+The tests create throwaway repositories. They cover two repos in one shell, dirty and missing protected paths, ignored files, stale base refs, concurrent acquires, foreign guards, dirty archives, secret refusals, reuse, locked reaping, adoption, and prunable registration cleanup.
 
-If the count is below the limit, continue. Otherwise, stop before creation and
-inspect registered paths only to produce a cleanup report. This is the one
-deliberate exception to the normal no-age-selection rule, requested by the user
-for this limit flow.
+## Limits
 
-An eligible cleanup candidate must:
+The guard is cooperative. A same-user process can still write into another worktree when it ignores the guard. The guard prevents accidents, not a hostile process. The archive and lease rules make cleanup recoverable.
 
-- exist and be neither `CURRENT` nor `PROTECTED_DEV_PATH`;
-- not be equal to or contained by either checkout after canonicalization;
-- not be marked `locked` in `git worktree list --porcelain`;
-- have no tracked or untracked non-ignored files (`git status --porcelain=v1
-  --untracked-files=all` must be empty; gitignored files never disqualify a
-  candidate); and
-- have filesystem access-time evidence at least 48 hours old.
-
-Use `stat -c %X` on GNU/Linux or `stat -f %a` on BSD/macOS. Access time is a
-heuristic, not proof of inactivity: `noatime` and `relatime` mounts can make it
-inaccurate. List each candidate with its branch and “last observed access”, and
-also explain excluded dirty or locked worktrees.
-
-Ask the user in the conversation whether to remove the listed candidates. Do
-not use shell `read`, assume consent, or silently continue. If the user
-declines, stop without creating a worktree. If the user agrees, remove only the
-explicitly listed paths using:
-
-```bash
-git worktree remove -- "$CANDIDATE_PATH"
-```
-
-Before each removal, while still holding the coordination lock, re-enumerate
-the worktree and verify that its canonical path, branch, HEAD, lock state,
-clean status, and explicit approval record still match the candidate
-shown to the user. If any value changed, do not remove it; report it as changed.
-Reject a candidate if it contains or is contained by the current checkout,
-protected checkout, or any other registered worktree. Never remove by a path
-that was not revalidated.
-
-Never use `--force`, `rm -rf`, `git worktree prune`, or automatic branch
-deletion. If removal refuses a path, leave it in place and report it. Re-count
-after cleanup and continue only if the count is below `WORKTREE_MAX`; otherwise
-stop and report that the limit remains reached. Existing branches are preserved.
-
-### 4. Create a unique isolated worktree and branch
-
-Reserve a never-before-used empty sibling directory. Keep the reservation in
-place through `git worktree add`; do not remove it first, because another
-process could replace the empty path with a symlink during that gap. If the
-repository parent
-is not writable, use `${TMPDIR:-/tmp}`. Never reuse an existing path:
-
-```bash
-REPO_PARENT=$(dirname "$CURRENT")
-REPO_NAME=$(basename "$CURRENT")
-if ! WT_PATH=$(mktemp -d "$REPO_PARENT/.${REPO_NAME}-prep.XXXXXX" 2>/dev/null); then
-  TMP_PARENT=${TMPDIR:-/tmp}
-  case "$TMP_PARENT" in /*) ;; *) echo "STOP: TMPDIR must be absolute" >&2; exit 1;; esac
-  TMP_PARENT=$(cd "$TMP_PARENT" 2>/dev/null && pwd -P) || {
-    echo "STOP: TMPDIR is not accessible" >&2; exit 1;
-  }
-  WT_PATH=$(mktemp -d "$TMP_PARENT/${REPO_NAME}-prep.XXXXXX") || {
-    echo "STOP: could not reserve an isolated worktree path" >&2; exit 1;
-  }
-fi
-test ! -L "$WT_PATH" || { echo "STOP: reserved path is a symlink" >&2; exit 1; }
-path_is_within() {
-  [ "$1" = "/" ] && return 0
-  case "$2/" in "$1/"*) return 0;; esac
-  return 1
-}
-if path_is_within "$CURRENT" "$WT_PATH" || path_is_within "$PROTECTED_DEV_PATH" "$WT_PATH"; then
-  echo "STOP: landing path is inside a protected checkout; isolation violated" >&2
-  exit 1
-fi
-if path_is_within "$CURRENT_COMMON_DIR" "$WT_PATH"; then
-  echo "STOP: landing path is inside the shared Git directory" >&2
-  exit 1
-fi
-while IFS= read -r registered_path; do
-  test -n "$registered_path" || continue
-  registered_path=$(cd "$registered_path" 2>/dev/null && pwd -P) || {
-    echo "STOP: could not canonicalize a registered worktree path" >&2; exit 1;
-  }
-  if path_is_within "$registered_path" "$WT_PATH"; then
-    echo "STOP: landing path is inside another registered worktree" >&2
-    exit 1
-  fi
-done < <(printf '%s\n' "$WORKTREE_LIST" | sed -n 's/^worktree //p')
-WT_NAME=$(basename "$WT_PATH")
-STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-BRANCH="prep-worktree/$DEFAULT-$STAMP-${WT_NAME##*.}"
-git worktree add -b "$BRANCH" "$WT_PATH" "$BASE_SHA" || {
-  echo "STOP: git could not create the isolated worktree" >&2
-  echo "requested path: $WT_PATH" >&2; echo "requested branch: $BRANCH" >&2; exit 1;
-}
-```
-
-`git worktree add` is the only registration operation. After it succeeds,
-canonicalize the registered path from `git worktree list --porcelain` and verify
-it is exactly `$WT_PATH` and remains outside the current/protected roots, every
-other registered worktree, and `$CURRENT_COMMON_DIR`. If it partially registers
-a path or this verification fails, report it for manual recovery; do not repair
-another checkout.
-
-### 5. Verify and report
-
-Verify that `git -C "$WT_PATH" branch --show-current` equals `$BRANCH`, its
-`HEAD` equals `$BASE_SHA`, and its status (tracked and untracked non-ignored
-files) is empty. Gitignored files never fail this check. On failure, stop and
-report without touching another checkout.
-
-Report:
-
-- `LANDING`: the absolute `$WT_PATH`.
-- `BRANCH`: the isolated `prep-worktree/...` branch and `$BASE_SHA`.
-- `CURRENT`: original path, branch, and dirty-file count, unchanged.
-- `PROTECTED DEV CHECKOUT`: configured path, branch, and clean validation.
-- `WORKTREE COUNT`: count after approved cleanup and configured maximum.
-- `OTHER WORKTREES`: not modified; stale registrations were not pruned.
-- `NEXT`: start in `$WT_PATH`; do not checkout `$DEFAULT` there.
-
-The prep branch is session-owned. Remove its worktree and branch only in a
-separate explicit cleanup operation after its work has been committed or
-otherwise preserved.
+`flock` is reliable on local filesystems. It is not reliable on NFS or SMB. macOS does not ship the `flock` command, but Python's `fcntl` module provides the same kernel lock.
