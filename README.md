@@ -54,8 +54,9 @@ Copy [`config.example.json`](config.example.json) there. The only key today is
 refreshes the current repo.
 
 `prep-worktree` requires `PREP_WORKTREE_PROTECTED_DEV_PATH` to name the
-absolute path of a clean, pristine development checkout on the repository's
-default branch. It never lands on or mutates that checkout. Its optional
+absolute path of a clean development checkout on the repository's default
+branch. Gitignored runtime artifacts such as logs, caches, and virtualenvs never
+make it dirty. It never lands on or mutates that checkout. Its optional
 `PREP_WORKTREE_MAX` setting defaults to `20`; when the registered worktree count
 reaches that limit, the skill lists clean, unlocked worktrees with at least
 48 hours of last-observed filesystem access and asks for explicit cleanup

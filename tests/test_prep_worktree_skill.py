@@ -16,7 +16,12 @@ def test_prep_worktree_requires_configured_protected_checkout():
     assert "different repository" in text
     assert 'test "$PROTECTED_ROOT" = "$PROTECTED_DEV_PATH"' in text
     assert "protected dev checkout must be on $DEFAULT" in text
-    assert "--untracked-files=all --ignored" in text
+    assert (
+        'PROTECTED_STATUS=$(git -C "$PROTECTED_DEV_PATH" '
+        "status --porcelain=v1 --untracked-files=all)" in text
+    )
+    assert "--untracked-files=all --ignored" not in text
+    assert "Pristine checks deliberately ignore gitignored files" in text
     assert "MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD" in text
 
 
