@@ -35,6 +35,7 @@ symlinks. Real files and directories are never deleted automatically.
 | `smart-implement` | `/smart-implement` | Implement from a spec or tickets (TDD, typecheck, tests), then `/compr-code-review`, then commit |
 | `smart-push-to-prod` | `/smart-push-to-prod` | Commit, push, open PR, squash-merge to main/master, refresh local default branch and any prod checkout mapped by `SMART_PUSH_PROD_PATH` |
 | `test-audit` | `/test-audit` | Authoring gate for new tests, plus an audit of low-value or implementation-coupled tests and the test-only seams they require |
+| `testimonial-video-from-interview` | `/testimonial-video-from-interview` | Turn an interview recording and transcript into a vertical multi-part testimonial, then a stitched cut with music |
 | `watch-promotion-gate` | `/watch-promotion-gate` | Token-free cron watcher for file-backed promotion evidence; reports gate transitions without calling models or market APIs |
 
 Source files live under `.agents/skills/<name>/SKILL.md`.

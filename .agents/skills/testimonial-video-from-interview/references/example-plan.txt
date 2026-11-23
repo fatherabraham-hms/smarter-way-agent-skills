@@ -1,0 +1,24 @@
+v1: first plan. Every still is used once. No captions. Intro cards are silent.
+
+Reading-time rule for intro cards: max(3s, words/3 + 1.25s), drone only, never under the voice.
+"ADA LOPEZ / NURSE / TULSA" is 5 words → 3.0s.
+
+---
+
+# CLIP 1 — "THE HOLD" (18.5s)
+
+| Time | Visual | On-screen text | Audio (verbatim) |
+|---|---|---|---|
+| 0:00–0:03.0 | `title-card.png`, gentle push | — (baked in) | drone |
+| 0:03.0–0:06.0 | `ada-text-intro.png`, gentle push | — (baked in) | drone |
+| 0:06.0–0:11.4 | `ada-portrait.png`, slow push. Its only use. | — | `01a_checked-every-morning` starts 0:06.0: *"I checked that account every morning."* |
+| 0:11.4–0:18.5 | `paper-statement.jpg`, gentle push. Baked-in balance is long enough to read (~7.1s). | — (baked in) | `01b_balance-was-gone` starts 0:11.4: *"And one morning the balance was just gone."* (drone killed on "gone") |
+
+Runtime: 18.5s. Silent cards get 6.0s up front. Voice runs 12.5s.
+
+---
+
+# NOTES
+
+- `01a` and `01b` are the only clips in this part. A rejected clip moves to `audio-clips/rejected/` and comes out of the table in `<name>-v2.txt`.
+- `kitchen-window.png` is NEEDED for clip 2: her hands on a mug, morning light, no face, 9:16. Do not generate it until the user says yes.
